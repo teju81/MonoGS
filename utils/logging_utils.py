@@ -4,8 +4,9 @@ _log_styles = {
     "MonoGS": "bold green",
     "GUI": "bold magenta",
     "Eval": "bold red",
+    "FrontEnd": "bold cyan",
+    "BackEnd" : "bold yellow"
 }
-
 
 def get_style(tag):
     if tag in _log_styles.keys():
@@ -13,6 +14,8 @@ def get_style(tag):
     return "bold blue"
 
 
-def Log(*args, tag="MonoGS"):
+def Log(*args, tag_msg=None, tag="MonoGS"):
     style = get_style(tag)
-    rich.print(f"[{style}]{tag}:[/{style}]", *args)
+    if not tag_msg:
+        tag_msg = tag
+    rich.print(f"[{style}]{tag_msg}:[/{style}]", *args)

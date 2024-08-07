@@ -15,6 +15,7 @@ Dataset:
   pcd_downsample_init: 32
   adaptive_pointsize: True
   point_size: 0.01
+  num_tum_cameras: 1
 
 Training:
   #Initialization
@@ -33,7 +34,7 @@ Training:
   gaussian_reset: 2001
   size_threshold: 20
   kf_interval: 5
-  window_size: 8
+  window_size: 24
   pose_window: 3
   edge_threshold: 1.1
   rgb_boundary_threshold: 0.01

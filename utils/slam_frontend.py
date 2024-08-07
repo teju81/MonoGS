@@ -43,6 +43,10 @@ class FrontEnd(mp.Process):
         self.device = "cuda:0"
         self.pause = False
 
+        self.start = torch.cuda.Event(enable_timing=True)
+        self.stop = torch.cuda.Event(enable_timing=True)
+        self.start.record()
+
     def set_hyperparams(self):
         self.save_dir = self.config["Results"]["save_dir"]
         self.save_results = self.config["Results"]["save_results"]
@@ -193,6 +197,7 @@ class FrontEnd(mp.Process):
                 break
 
         self.median_depth = get_median_depth(depth, opacity)
+
         return render_pkg
 
     def is_keyframe(
@@ -300,7 +305,16 @@ class FrontEnd(mp.Process):
         self.requested_init = True
 
     def sync_backend(self, data):
+
         self.gaussians = data[1]
+
+        self.stop.record()
+        torch.cuda.synchronize()
+        mapping_duration = self.start.elapsed_time(self.stop)/1000
+        Log(f"Window Length: {len(self.current_window)}, Number of Gaussians: {self.gaussians.get_xyz.shape[0]}, Mapping DUration: {mapping_duration}", tag_msg=data[0], tag="BackEnd")
+        self.start.record()
+
+
         occ_aware_visibility = data[2]
         keyframes = data[3]
         self.occ_aware_visibility = occ_aware_visibility
@@ -389,7 +403,14 @@ class FrontEnd(mp.Process):
                 )
 
                 # Tracking
+                start = torch.cuda.Event(enable_timing=True)
+                stop = torch.cuda.Event(enable_timing=True)
+                start.record()
                 render_pkg = self.tracking(cur_frame_idx, viewpoint)
+                stop.record()
+                torch.cuda.synchronize()
+                tracking_duration = start.elapsed_time(stop)/1000
+                Log(f"Tracking Duration: {tracking_duration}", tag="FrontEnd")
 
                 current_window_dict = {}
                 current_window_dict[self.current_window[0]] = self.current_window[1:]
