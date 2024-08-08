@@ -25,6 +25,7 @@ class FrontEnd(mp.Process):
         self.backend_queue = None
         self.q_main2vis = None
         self.q_vis2main = None
+        self.camera_id = 2
 
         self.initialized = False
         self.kf_indices = []
@@ -42,10 +43,6 @@ class FrontEnd(mp.Process):
         self.cameras = dict()
         self.device = "cuda:0"
         self.pause = False
-
-        self.start = torch.cuda.Event(enable_timing=True)
-        self.stop = torch.cuda.Event(enable_timing=True)
-        self.start.record()
 
     def set_hyperparams(self):
         self.save_dir = self.config["Results"]["save_dir"]
@@ -130,6 +127,7 @@ class FrontEnd(mp.Process):
         self.reset = False
 
     def tracking(self, cur_frame_idx, viewpoint):
+        Log(f"Current Frame ID: {cur_frame_idx}", tag_msg="Tracking", tag=f"FrontEnd_{self.camera_id}")
         prev = self.cameras[cur_frame_idx - self.use_every_n_frames]
         viewpoint.update_RT(prev.R, prev.T)
 
@@ -184,6 +182,7 @@ class FrontEnd(mp.Process):
                 converged = update_pose(viewpoint)
 
             if tracking_itr % 10 == 0:
+                Log("", tag_msg="Sending Gaussian Packets to GUI", tag=f"FrontEnd_{self.camera_id}")
                 self.q_main2vis.put(
                     gui_utils.GaussianPacket(
                         current_frame=viewpoint,
@@ -291,30 +290,28 @@ class FrontEnd(mp.Process):
         return window, removed_frame
 
     def request_keyframe(self, cur_frame_idx, viewpoint, current_window, depthmap):
+        msg = [f"Camera ID: {self.camera_id}"]
+        self.backend_queue.put(msg)
         msg = ["keyframe", cur_frame_idx, viewpoint, current_window, depthmap]
         self.backend_queue.put(msg)
         self.requested_keyframe += 1
 
     def reqeust_mapping(self, cur_frame_idx, viewpoint):
+        msg = [f"Camera ID: {self.camera_id}"]
+        self.backend_queue.put(msg)
         msg = ["map", cur_frame_idx, viewpoint]
         self.backend_queue.put(msg)
 
     def request_init(self, cur_frame_idx, viewpoint, depth_map):
+        msg = [f"Camera ID: {self.camera_id}"]
+        self.backend_queue.put(msg)
         msg = ["init", cur_frame_idx, viewpoint, depth_map]
         self.backend_queue.put(msg)
         self.requested_init = True
 
     def sync_backend(self, data):
-
+        Log(f"Message Rxd from backend...", tag_msg=data[0], tag=f"FrontEnd_{self.camera_id}")
         self.gaussians = data[1]
-
-        self.stop.record()
-        torch.cuda.synchronize()
-        mapping_duration = self.start.elapsed_time(self.stop)/1000
-        Log(f"Window Length: {len(self.current_window)}, Number of Gaussians: {self.gaussians.get_xyz.shape[0]}, Mapping DUration: {mapping_duration}", tag_msg=data[0], tag="BackEnd")
-        self.start.record()
-
-
         occ_aware_visibility = data[2]
         keyframes = data[3]
         self.occ_aware_visibility = occ_aware_visibility
@@ -327,7 +324,9 @@ class FrontEnd(mp.Process):
         if cur_frame_idx % 10 == 0:
             torch.cuda.empty_cache()
 
+
     def run(self):
+        Log(f"Started Camera ID: {self.camera_id}", tag_msg="START", tag=f"FrontEnd_{self.camera_id}")
         cur_frame_idx = 0
         projection_matrix = getProjectionMatrix2(
             znear=0.01,
@@ -340,8 +339,7 @@ class FrontEnd(mp.Process):
             H=self.dataset.height,
         ).transpose(0, 1)
         projection_matrix = projection_matrix.to(device=self.device)
-        tic = torch.cuda.Event(enable_timing=True)
-        toc = torch.cuda.Event(enable_timing=True)
+
 
         while True:
             if self.q_vis2main.empty():
@@ -356,21 +354,9 @@ class FrontEnd(mp.Process):
                 else:
                     self.backend_queue.put(["unpause"])
 
-            if self.frontend_queue.empty():
-                tic.record()
+            Log(f"Current Frame ID: {cur_frame_idx}, FrontEnd Queue Status: {self.frontend_queue.empty()}", tag_msg=f"Camera ID: {self.camera_id}", tag=f"FrontEnd_{self.camera_id}")
+            if self.frontend_queue.empty() and self.camera_id == 0 :
                 if cur_frame_idx >= len(self.dataset):
-                    if self.save_results:
-                        eval_ate(
-                            self.cameras,
-                            self.kf_indices,
-                            self.save_dir,
-                            0,
-                            final=True,
-                            monocular=self.monocular,
-                        )
-                        save_gaussians(
-                            self.gaussians, self.save_dir, "final", final=True
-                        )
                     break
 
                 if self.requested_init:
@@ -403,14 +389,9 @@ class FrontEnd(mp.Process):
                 )
 
                 # Tracking
-                start = torch.cuda.Event(enable_timing=True)
-                stop = torch.cuda.Event(enable_timing=True)
-                start.record()
+
                 render_pkg = self.tracking(cur_frame_idx, viewpoint)
-                stop.record()
-                torch.cuda.synchronize()
-                tracking_duration = start.elapsed_time(stop)/1000
-                Log(f"Tracking Duration: {tracking_duration}", tag="FrontEnd")
+
 
                 current_window_dict = {}
                 current_window_dict[self.current_window[0]] = self.current_window[1:]
@@ -479,26 +460,6 @@ class FrontEnd(mp.Process):
                     self.cleanup(cur_frame_idx)
                 cur_frame_idx += 1
 
-                if (
-                    self.save_results
-                    and self.save_trj
-                    and create_kf
-                    and len(self.kf_indices) % self.save_trj_kf_intv == 0
-                ):
-                    Log("Evaluating ATE at frame: ", cur_frame_idx)
-                    eval_ate(
-                        self.cameras,
-                        self.kf_indices,
-                        self.save_dir,
-                        cur_frame_idx,
-                        monocular=self.monocular,
-                    )
-                toc.record()
-                torch.cuda.synchronize()
-                if create_kf:
-                    # throttle at 3fps when keyframe is added
-                    duration = tic.elapsed_time(toc)
-                    time.sleep(max(0.01, 1.0 / 3.0 - duration / 1000))
             else:
                 data = self.frontend_queue.get()
                 if data[0] == "sync_backend":

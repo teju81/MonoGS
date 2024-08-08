@@ -52,15 +52,16 @@ class SLAM:
 
         self.gaussians = GaussianModel(model_params.sh_degree, config=self.config)
         self.gaussians.init_lr(6.0)
-        self.dataset = load_dataset(
-            model_params, model_params.source_path, config=config
-        )
+        # self.dataset = load_dataset(
+        #     model_params, model_params.source_path, config=config
+        # )
 
         self.gaussians.training_setup(opt_params)
         bg_color = [0, 0, 0]
         self.background = torch.tensor(bg_color, dtype=torch.float32, device="cuda")
 
-        frontend_queue = mp.Queue()
+        num_tum_cameras = self.config["Dataset"]["num_tum_cameras"]
+        frontend_queues = [mp.Queue() for _ in range(num_tum_cameras)]
         backend_queue = mp.Queue()
 
         q_main2vis = mp.Queue() if self.use_gui else FakeQueue()
@@ -69,24 +70,31 @@ class SLAM:
         self.config["Results"]["save_dir"] = save_dir
         self.config["Training"]["monocular"] = self.monocular
 
-        self.frontend = FrontEnd(self.config)
+
+        self.frontend = [FrontEnd(self.config) for _ in range(num_tum_cameras)]
         self.backend = BackEnd(self.config)
 
-        self.frontend.dataset = self.dataset
-        self.frontend.background = self.background
-        self.frontend.pipeline_params = self.pipeline_params
-        self.frontend.frontend_queue = frontend_queue
-        self.frontend.backend_queue = backend_queue
-        self.frontend.q_main2vis = q_main2vis
-        self.frontend.q_vis2main = q_vis2main
-        self.frontend.set_hyperparams()
+
+        for i in range(num_tum_cameras):
+            self.frontend[i].camera_id = i
+            self.frontend[i].dataset = load_dataset(model_params, model_params.source_path, config=config)
+            self.frontend[i].background = self.background #torch.tensor(bg_color, dtype=torch.float32, device="cuda")
+            self.frontend[i].pipeline_params = self.pipeline_params
+            self.frontend[i].frontend_queue = frontend_queues[i]
+            self.frontend[i].backend_queue = backend_queue
+            self.frontend[i].q_main2vis = q_main2vis
+            self.frontend[i].q_vis2main = q_vis2main
+            self.frontend[i].set_hyperparams()
+            Log(f"Initialized paramaters for Camera ID: {self.frontend[i].camera_id}", tag_msg="INIT", tag="MonoGS")
+
 
         self.backend.gaussians = self.gaussians
         self.backend.background = self.background
         self.backend.cameras_extent = 6.0
         self.backend.pipeline_params = self.pipeline_params
         self.backend.opt_params = self.opt_params
-        self.backend.frontend_queue = frontend_queue
+        self.backend.num_tum_cameras = num_tum_cameras
+        self.backend.frontend_queues = frontend_queues
         self.backend.backend_queue = backend_queue
         self.backend.live_mode = self.live_mode
 
@@ -107,87 +115,20 @@ class SLAM:
             time.sleep(5)
 
         backend_process.start()
-        self.frontend.run()
-        backend_queue.put(["pause"])
+        #self.frontend.run()
+        frontend_processes = []
+        for i in range(num_tum_cameras):
+            Log(f"started FrontEnd with ID: {self.frontend[i].camera_id}", tag_msg="MULTITHREAD START", tag="MonoGS")
+            frontend_process = mp.Process(target=self.frontend[i].run)
+            frontend_process.start()
+            time.sleep(1)
+            frontend_processes.append(frontend_process)
 
-        end.record()
-        torch.cuda.synchronize()
-        # empty the frontend queue
-        N_frames = len(self.frontend.cameras)
-        FPS = N_frames / (start.elapsed_time(end) * 0.001)
-        Log("Total time", start.elapsed_time(end) * 0.001, tag="Eval")
-        Log("Total FPS", N_frames / (start.elapsed_time(end) * 0.001), tag="Eval")
 
-        if self.eval_rendering:
-            self.gaussians = self.frontend.gaussians
-            kf_indices = self.frontend.kf_indices
-            ATE = eval_ate(
-                self.frontend.cameras,
-                self.frontend.kf_indices,
-                self.save_dir,
-                0,
-                final=True,
-                monocular=self.monocular,
-            )
-
-            rendering_result = eval_rendering(
-                self.frontend.cameras,
-                self.gaussians,
-                self.dataset,
-                self.save_dir,
-                self.pipeline_params,
-                self.background,
-                kf_indices=kf_indices,
-                iteration="before_opt",
-            )
-            columns = ["tag", "psnr", "ssim", "lpips", "RMSE ATE", "FPS"]
-            metrics_table = wandb.Table(columns=columns)
-            metrics_table.add_data(
-                "Before",
-                rendering_result["mean_psnr"],
-                rendering_result["mean_ssim"],
-                rendering_result["mean_lpips"],
-                ATE,
-                FPS,
-            )
-
-            # re-used the frontend queue to retrive the gaussians from the backend.
-            while not frontend_queue.empty():
-                frontend_queue.get()
-            backend_queue.put(["color_refinement"])
-            while True:
-                if frontend_queue.empty():
-                    time.sleep(0.01)
-                    continue
-                data = frontend_queue.get()
-                if data[0] == "sync_backend" and frontend_queue.empty():
-                    gaussians = data[1]
-                    self.gaussians = gaussians
-                    break
-
-            rendering_result = eval_rendering(
-                self.frontend.cameras,
-                self.gaussians,
-                self.dataset,
-                self.save_dir,
-                self.pipeline_params,
-                self.background,
-                kf_indices=kf_indices,
-                iteration="after_opt",
-            )
-            metrics_table.add_data(
-                "After",
-                rendering_result["mean_psnr"],
-                rendering_result["mean_ssim"],
-                rendering_result["mean_lpips"],
-                ATE,
-                FPS,
-            )
-            wandb.log({"Metrics": metrics_table})
-            save_gaussians(self.gaussians, self.save_dir, "final_after_opt", final=True)
-
-        backend_queue.put(["stop"])
         backend_process.join()
+
+        for i in range(num_tum_cameras):
+            frontend_processes[i].join()
         Log("Backend stopped and joined the main thread")
         if self.use_gui:
             q_main2vis.put(gui_utils.GaussianPacket(finish=True))

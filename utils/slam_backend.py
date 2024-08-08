@@ -17,12 +17,13 @@ class BackEnd(mp.Process):
     def __init__(self, config):
         super().__init__()
         self.config = config
+        self.num_tum_cameras = None
         self.gaussians = None
         self.pipeline_params = None
         self.opt_params = None
         self.background = None
         self.cameras_extent = None
-        self.frontend_queue = None
+        self.frontend_queues = None
         self.backend_queue = None
         self.live_mode = False
 
@@ -140,7 +141,9 @@ class BackEnd(mp.Process):
         return render_pkg
 
     def map(self, current_window, prune=False, iters=1):
+        Log("", tag_msg="Mapping", tag="BackEnd")
         if len(current_window) == 0:
+            Log(f"{len(current_window)}", tag_msg="Current Window Length: ", tag="BackEnd")
             return
 
         viewpoint_stack = [self.viewpoints[kf_idx] for kf_idx in current_window]
@@ -362,9 +365,11 @@ class BackEnd(mp.Process):
             tag = "sync_backend"
 
         msg = [tag, clone_obj(self.gaussians), self.occ_aware_visibility, keyframes]
-        self.frontend_queue.put(msg)
+        for i in range(self.num_tum_cameras):
+            self.frontend_queues[i].put(msg)
 
     def run(self):
+        Log("Slam Backend running............")
         while True:
             if self.backend_queue.empty():
                 if self.pause:
@@ -383,6 +388,8 @@ class BackEnd(mp.Process):
                     self.push_to_frontend()
             else:
                 data = self.backend_queue.get()
+                Log(f"Message Rxd from frontend...", tag_msg=data[0], tag="BackEnd")
+
                 if data[0] == "stop":
                     break
                 elif data[0] == "pause":
@@ -396,7 +403,7 @@ class BackEnd(mp.Process):
                     cur_frame_idx = data[1]
                     viewpoint = data[2]
                     depth_map = data[3]
-                    Log("Resetting the system")
+                    Log("", tag_msg="Resetting the system", tag="BackEnd")
                     self.reset()
 
                     self.viewpoints[cur_frame_idx] = viewpoint
@@ -474,9 +481,12 @@ class BackEnd(mp.Process):
                     self.map(self.current_window, prune=True)
                     self.push_to_frontend("keyframe")
                 else:
-                    raise Exception("Unprocessed data", data)
+                    pass
+                    #Log(f"Message rxd from frontend with {data[0]}", tag_msg="OOV_MSG", tag="BackEnd")
+                    #raise Exception("Unprocessed data", data)
         while not self.backend_queue.empty():
             self.backend_queue.get()
-        while not self.frontend_queue.empty():
-            self.frontend_queue.get()
+        for i in range(self.num_tum_cameras):
+            while not self.frontend_queues[i].empty():
+                self.frontend_queues[i].get()
         return

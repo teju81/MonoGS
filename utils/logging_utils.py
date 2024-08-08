@@ -2,9 +2,10 @@ import rich
 
 _log_styles = {
     "MonoGS": "bold green",
-    "GUI": "bold magenta",
+    "GUI": "bold red",
     "Eval": "bold red",
-    "FrontEnd": "bold cyan",
+    "FrontEnd_0": "bold cyan",
+    "FrontEnd_1": "bold purple",
     "BackEnd" : "bold yellow"
 }
 
