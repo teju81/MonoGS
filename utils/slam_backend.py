@@ -35,7 +35,7 @@ class BackEnd(mp.Process):
         self.last_sent = 0
         self.occ_aware_visibility = {}
         self.viewpoints = {}
-        self.current_window = []
+        self.current_windows = [[]]
         self.initialized = not self.monocular
         self.keyframe_optimizers = None
 
@@ -74,7 +74,7 @@ class BackEnd(mp.Process):
         self.iteration_count = 0
         self.occ_aware_visibility = {}
         self.viewpoints = {}
-        self.current_window = []
+        self.current_windows = [[]]
         self.initialized = not self.monocular
         self.keyframe_optimizers = None
 
@@ -140,10 +140,9 @@ class BackEnd(mp.Process):
         Log("Initialized map")
         return render_pkg
 
-    def map(self, current_window, prune=False, iters=1):
+    def map(self, current_windows, prune=False, iters=1):
         Log("", tag_msg="Mapping", tag="BackEnd")
-        if len(current_window) == 0:
-            Log(f"{len(current_window)}", tag_msg="Current Window Length: ", tag="BackEnd")
+        if sum([len(current_windows[i]) for i in range(self.num_tum_cameras)]) == 0:
             return
 
         viewpoint_stack = [self.viewpoints[kf_idx] for kf_idx in current_window]
@@ -355,17 +354,18 @@ class BackEnd(mp.Process):
                 self.gaussians.update_learning_rate(iteration)
         Log("Map refinement done")
 
-    def push_to_frontend(self, tag=None):
+    def push_to_frontend(self, tag=None, frontend_id=None):
+        frontend_list = [frontend_id if not frontend_id else range(self.num_tum_cameras)]
         self.last_sent = 0
-        keyframes = []
-        for kf_idx in self.current_window:
-            kf = self.viewpoints[kf_idx]
-            keyframes.append((kf_idx, kf.R.clone(), kf.T.clone()))
-        if tag is None:
-            tag = "sync_backend"
+        for i in frontend_list:
+            keyframes = []
+            for kf_idx in self.current_windows[i]:
+                kf = self.viewpoints[kf_idx]
+                keyframes.append((kf_idx, kf.R.clone(), kf.T.clone()))
+            if tag is None:
+                tag = "sync_backend"
 
-        msg = [tag, clone_obj(self.gaussians), self.occ_aware_visibility, keyframes]
-        for i in range(self.num_tum_cameras):
+            msg = [tag, clone_obj(self.gaussians), self.occ_aware_visibility, keyframes]
             self.frontend_queues[i].put(msg)
 
     def run(self):
@@ -375,16 +375,15 @@ class BackEnd(mp.Process):
                 if self.pause:
                     time.sleep(0.01)
                     continue
-                if len(self.current_window) == 0:
+
+                if sum([len(self.current_windows[i]) for i in range(self.num_tum_cameras)]) == 0:
                     time.sleep(0.01)
                     continue
 
-                if self.single_thread:
-                    time.sleep(0.01)
-                    continue
-                self.map(self.current_window)
+
+                self.map(self.current_windows)
                 if self.last_sent >= 10:
-                    self.map(self.current_window, prune=True, iters=10)
+                    self.map(self.current_windows, prune=True, iters=10)
                     self.push_to_frontend()
             else:
                 data = self.backend_queue.get()
@@ -400,9 +399,10 @@ class BackEnd(mp.Process):
                     self.color_refinement()
                     self.push_to_frontend()
                 elif data[0] == "init":
-                    cur_frame_idx = data[1]
-                    viewpoint = data[2]
-                    depth_map = data[3]
+                    frontend_id = data[1]
+                    cur_frame_idx = data[2]
+                    viewpoint = data[3]
+                    depth_map = data[4]
                     Log("", tag_msg="Resetting the system", tag="BackEnd")
                     self.reset()
 
@@ -411,16 +411,17 @@ class BackEnd(mp.Process):
                         cur_frame_idx, viewpoint, depth_map=depth_map, init=True
                     )
                     self.initialize_map(cur_frame_idx, viewpoint)
-                    self.push_to_frontend("init")
+                    self.push_to_frontend("init", frontend_id)
 
                 elif data[0] == "keyframe":
-                    cur_frame_idx = data[1]
-                    viewpoint = data[2]
-                    current_window = data[3]
-                    depth_map = data[4]
+                    frontend_id = data[1]
+                    cur_frame_idx = data[2]
+                    viewpoint = data[3]
+                    current_window = data[4]
+                    depth_map = data[5]
 
                     self.viewpoints[cur_frame_idx] = viewpoint
-                    self.current_window = current_window
+                    self.current_windows[frontend_id] = current_window
                     self.add_next_kf(cur_frame_idx, viewpoint, depth_map=depth_map)
 
                     opt_params = []
@@ -428,7 +429,7 @@ class BackEnd(mp.Process):
                     iter_per_kf = self.mapping_itr_num if self.single_thread else 10
                     if not self.initialized:
                         if (
-                            len(self.current_window)
+                            len(self.current_windows[frontend_id])
                             == self.config["Training"]["window_size"]
                         ):
                             frames_to_optimize = (
@@ -438,10 +439,10 @@ class BackEnd(mp.Process):
                             Log("Performing initial BA for initialization")
                         else:
                             iter_per_kf = self.mapping_itr_num
-                    for cam_idx in range(len(self.current_window)):
-                        if self.current_window[cam_idx] == 0:
+                    for cam_idx in range(len(self.current_windows[frontend_id])):
+                        if self.current_windows[frontend_id][cam_idx] == 0:
                             continue
-                        viewpoint = self.viewpoints[current_window[cam_idx]]
+                        viewpoint = self.viewpoints[self.current_windows[frontend_id][cam_idx]]
                         if cam_idx < frames_to_optimize:
                             opt_params.append(
                                 {
@@ -477,9 +478,9 @@ class BackEnd(mp.Process):
                         )
                     self.keyframe_optimizers = torch.optim.Adam(opt_params)
 
-                    self.map(self.current_window, iters=iter_per_kf)
-                    self.map(self.current_window, prune=True)
-                    self.push_to_frontend("keyframe")
+                    self.map(self.current_windows, iters=iter_per_kf)
+                    self.map(self.current_windows, prune=True)
+                    self.push_to_frontend("keyframe", frontend_id)
                 else:
                     pass
                     #Log(f"Message rxd from frontend with {data[0]}", tag_msg="OOV_MSG", tag="BackEnd")
