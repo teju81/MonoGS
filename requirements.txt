@@ -1,0 +1,3 @@
+pyrealsense2
+git+https://github.com/rmurai0610/diff-gaussian-rasterization-w-pose.git@43e21bff91cd24986ee3dd52fe0bb06952e50ec7
+git+https://github.com/camenduru/simple-knn.git@44f764299fa305faf6ec5ebd99939e0508331503
