@@ -76,7 +76,7 @@ class SLAM:
 
 
         for i in range(num_tum_cameras):
-            self.frontend[i].camera_id = i
+            self.frontend[i].frontend_id = i
             self.frontend[i].dataset = load_dataset(model_params, model_params.source_path, config=config)
             self.frontend[i].background = self.background #torch.tensor(bg_color, dtype=torch.float32, device="cuda")
             self.frontend[i].pipeline_params = self.pipeline_params
@@ -85,7 +85,7 @@ class SLAM:
             self.frontend[i].q_main2vis = q_main2vis
             self.frontend[i].q_vis2main = q_vis2main
             self.frontend[i].set_hyperparams()
-            Log(f"Initialized paramaters for Camera ID: {self.frontend[i].camera_id}", tag_msg="INIT", tag="MonoGS")
+            Log(f"Initialized paramaters for Camera ID: {self.frontend[i].frontend_id}", tag_msg="INIT", tag="MonoGS")
 
 
         self.backend.gaussians = self.gaussians
@@ -93,7 +93,6 @@ class SLAM:
         self.backend.cameras_extent = 6.0
         self.backend.pipeline_params = self.pipeline_params
         self.backend.opt_params = self.opt_params
-        self.backend.num_tum_cameras = num_tum_cameras
         self.backend.frontend_queues = frontend_queues
         self.backend.backend_queue = backend_queue
         self.backend.live_mode = self.live_mode
@@ -118,7 +117,7 @@ class SLAM:
         #self.frontend.run()
         frontend_processes = []
         for i in range(num_tum_cameras):
-            Log(f"started FrontEnd with ID: {self.frontend[i].camera_id}", tag_msg="MULTITHREAD START", tag="MonoGS")
+            Log(f"started FrontEnd with ID: {self.frontend[i].frontend_id}", tag_msg="MULTITHREAD START", tag="MonoGS")
             frontend_process = mp.Process(target=self.frontend[i].run)
             frontend_process.start()
             time.sleep(1)

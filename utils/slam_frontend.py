@@ -25,7 +25,7 @@ class FrontEnd(mp.Process):
         self.backend_queue = None
         self.q_main2vis = None
         self.q_vis2main = None
-        self.camera_id = 2
+        self.frontend_id = 2
 
         self.initialized = False
         self.kf_indices = []
@@ -127,7 +127,7 @@ class FrontEnd(mp.Process):
         self.reset = False
 
     def tracking(self, cur_frame_idx, viewpoint):
-        Log(f"Current Frame ID: {cur_frame_idx}", tag_msg="Tracking", tag=f"FrontEnd_{self.camera_id}")
+        Log(f"Current Frame ID: {cur_frame_idx}", tag_msg="Tracking", tag=f"FrontEnd_{self.frontend_id}")
         prev = self.cameras[cur_frame_idx - self.use_every_n_frames]
         viewpoint.update_RT(prev.R, prev.T)
 
@@ -182,7 +182,7 @@ class FrontEnd(mp.Process):
                 converged = update_pose(viewpoint)
 
             if tracking_itr % 10 == 0:
-                Log("", tag_msg="Sending Gaussian Packets to GUI", tag=f"FrontEnd_{self.camera_id}")
+                Log("", tag_msg="Sending Gaussian Packets to GUI", tag=f"FrontEnd_{self.frontend_id}")
                 self.q_main2vis.put(
                     gui_utils.GaussianPacket(
                         current_frame=viewpoint,
@@ -290,27 +290,27 @@ class FrontEnd(mp.Process):
         return window, removed_frame
 
     def request_keyframe(self, cur_frame_idx, viewpoint, current_window, depthmap):
-        msg = [f"Camera ID: {self.camera_id}"]
+        msg = [f"Camera ID: {self.frontend_id}"]
         self.backend_queue.put(msg)
-        msg = ["keyframe", cur_frame_idx, viewpoint, current_window, depthmap]
+        msg = ["keyframe", self.frontend_id, cur_frame_idx, viewpoint, current_window, depthmap]
         self.backend_queue.put(msg)
         self.requested_keyframe += 1
 
     def reqeust_mapping(self, cur_frame_idx, viewpoint):
-        msg = [f"Camera ID: {self.camera_id}"]
+        msg = [f"Camera ID: {self.frontend_id}"]
         self.backend_queue.put(msg)
         msg = ["map", cur_frame_idx, viewpoint]
         self.backend_queue.put(msg)
 
     def request_init(self, cur_frame_idx, viewpoint, depth_map):
-        msg = [f"Camera ID: {self.camera_id}"]
+        msg = [f"Camera ID: {self.frontend_id}"]
         self.backend_queue.put(msg)
-        msg = ["init", cur_frame_idx, viewpoint, depth_map]
+        msg = ["init", self.frontend_id, cur_frame_idx, viewpoint, depth_map]
         self.backend_queue.put(msg)
         self.requested_init = True
 
     def sync_backend(self, data):
-        Log(f"Message Rxd from backend...", tag_msg=data[0], tag=f"FrontEnd_{self.camera_id}")
+        Log(f"Message Rxd from backend...", tag_msg=data[0], tag=f"FrontEnd_{self.frontend_id}")
         self.gaussians = data[1]
         occ_aware_visibility = data[2]
         keyframes = data[3]
@@ -326,7 +326,7 @@ class FrontEnd(mp.Process):
 
 
     def run(self):
-        Log(f"Started Camera ID: {self.camera_id}", tag_msg="START", tag=f"FrontEnd_{self.camera_id}")
+        Log(f"Started FrontEnd", tag=f"FrontEnd_{self.frontend_id}")
         cur_frame_idx = 0
         projection_matrix = getProjectionMatrix2(
             znear=0.01,
@@ -354,8 +354,8 @@ class FrontEnd(mp.Process):
                 else:
                     self.backend_queue.put(["unpause"])
 
-            Log(f"Current Frame ID: {cur_frame_idx}, FrontEnd Queue Status: {self.frontend_queue.empty()}", tag_msg=f"Camera ID: {self.camera_id}", tag=f"FrontEnd_{self.camera_id}")
-            if self.frontend_queue.empty() and self.camera_id == 0 :
+            Log(f"Current Frame ID: {cur_frame_idx}, FrontEnd Queue Status: {self.frontend_queue.empty()}", tag=f"FrontEnd_{self.frontend_id}")
+            if self.frontend_queue.empty() and self.frontend_id == 0:
                 if cur_frame_idx >= len(self.dataset):
                     break
 
