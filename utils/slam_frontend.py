@@ -355,7 +355,7 @@ class FrontEnd(mp.Process):
                     self.backend_queue.put(["unpause"])
 
             Log(f"Current Frame ID: {cur_frame_idx}, FrontEnd Queue Status: {self.frontend_queue.empty()}", tag=f"FrontEnd_{self.frontend_id}")
-            if self.frontend_queue.empty() and self.frontend_id == 0:
+            if self.frontend_queue.empty():
                 if cur_frame_idx >= len(self.dataset):
                     break
 

@@ -40,8 +40,6 @@ class SLAM_GUI:
         self.frustum_dict = {}
         self.model_dict = {}
 
-        self.init_widget()
-
         self.q_main2vis = None
         self.gaussian_cur = None
         self.pipe = None
@@ -54,13 +52,15 @@ class SLAM_GUI:
         if params_gui is not None:
             self.background = params_gui.background
             self.gaussian_cur = params_gui.gaussians
+            self.frontend_id = params_gui.frontend_id
             self.init = True
             self.q_main2vis = params_gui.q_main2vis
             self.q_vis2main = params_gui.q_vis2main
             self.pipe = params_gui.pipe
 
-        self.gaussian_nums = []
+        self.init_widget()
 
+        self.gaussian_nums = []
         self.g_camera = util.Camera(self.window_h, self.window_w)
         self.window_gl = self.init_glfw()
         self.g_renderer = OpenGLRenderer(self.g_camera.w, self.g_camera.h)
@@ -80,7 +80,7 @@ class SLAM_GUI:
         self.window_w, self.window_h = 1600, 900
 
         self.window = gui.Application.instance.create_window(
-            "MonoGS", self.window_w, self.window_h
+            f"MonoGS Map for Front End ID {self.frontend_id}", self.window_w, self.window_h
         )
         self.window.set_on_layout(self._on_layout)
         self.window.set_on_close(self._on_close)
@@ -394,6 +394,7 @@ class SLAM_GUI:
         gaussian_packet = get_latest_queue(q)
         if gaussian_packet is None:
             return
+        Log("Rxd Gaussian Packets", tag="GUI")
 
         if gaussian_packet.has_gaussians:
             self.gaussian_cur = gaussian_packet

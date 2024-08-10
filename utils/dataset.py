@@ -403,6 +403,10 @@ class TUMDataset(MonocularDataset):
         self.depth_paths = parser.depth_paths
         self.poses = parser.poses
 
+    def reverse_dataset(self):
+        self.color_paths = self.color_paths[::-1]
+        self.depth_paths = self.depth_paths[::-1]
+        self.poses = self.poses[::-1]
 
 class ReplicaDataset(MonocularDataset):
     def __init__(self, args, path, config):

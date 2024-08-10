@@ -165,11 +165,13 @@ class ParamsGUI:
         pipe=None,
         background=None,
         gaussians=None,
+        frontend_id = None,
         q_main2vis=None,
         q_vis2main=None,
     ):
         self.pipe = pipe
         self.background = background
         self.gaussians = gaussians
+        self.frontend_id = frontend_id
         self.q_main2vis = q_main2vis
         self.q_vis2main = q_vis2main
