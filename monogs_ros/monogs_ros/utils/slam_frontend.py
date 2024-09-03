@@ -181,7 +181,7 @@ class FrontEnd(Node):
 
         return data
 
-    def publish_message_to_backend(self, tag, cur_frame_idx, viewpoint, depth_map=None, current_window=[]):
+    def publish_message_to_backend(self, tag, cur_frame_idx=None, viewpoint=None, depth_map=None, current_window=[]):
         f2b_msg = self.convert_f2b_msg_to_ros_msg(tag, cur_frame_idx, viewpoint, depth_map, current_window)
 
 
@@ -195,10 +195,15 @@ class FrontEnd(Node):
 
         f2b_msg.msg = tag
         f2b_msg.frontend_id = self.frontend_id
-        f2b_msg.cur_frame_idx = cur_frame_idx
+        if cur_frame_idx is not None:
+            f2b_msg.cur_frame_idx = cur_frame_idx
 
-        f2b_msg.viewpoint = self.get_camera_msg_from_viewpoint(viewpoint)
-        f2b_msg.depth_map = self.convert_numpy_array_to_ros_message(depth_map)
+
+        if viewpoint is not None:
+            f2b_msg.viewpoint = self.get_camera_msg_from_viewpoint(viewpoint)
+
+        if depth_map is not None:
+            f2b_msg.depth_map = self.convert_numpy_array_to_ros_message(depth_map)
         f2b_msg.current_window = current_window
 
         return f2b_msg
@@ -269,20 +274,39 @@ class FrontEnd(Node):
 
         num_dims = np_arr.ndim
 
-        if num_dims >= 1:
+        if num_dims == 2:
             # Define the layout of the array
             dim0 = MultiArrayDimension()
             dim0.label = "dim0"
             dim0.size = np_arr.shape[0]
             dim0.stride = np_arr.shape[1] # num of columns per row
 
-        if num_dims >= 2:
             dim1 = MultiArrayDimension()
             dim1.label = "dim1"
             dim1.size = np_arr.shape[1]
             dim1.stride = 1
+            ros_multiarray_msg.layout.dim = [dim0, dim1]
 
-        ros_multiarray_msg.layout.dim = [dim0, dim1]
+        elif num_dims == 3:
+            # Define the layout of the array
+            dim0 = MultiArrayDimension()
+            dim0.label = "dim0"
+            dim0.size = np_arr.shape[0]
+            dim0.stride = np_arr.shape[1]*np_arr.shape[2] # num of columns per row
+
+            dim1 = MultiArrayDimension()
+            dim1.label = "dim1"
+            dim1.size = np_arr.shape[1]
+            dim1.stride = np_arr.shape[2]
+
+            dim2 = MultiArrayDimension()
+            dim2.label = "dim1"
+            dim2.size = np_arr.shape[2]
+            dim2.stride = 1
+            ros_multiarray_msg.layout.dim = [dim0, dim1, dim2]
+        elif num_dims > 3:
+            print("#Dimensions is > 3")
+
         ros_multiarray_msg.layout.data_offset = 0
 
         # Flatten the data and assign it to the message
@@ -565,7 +589,7 @@ class FrontEnd(Node):
 
     def publish_message_to_gui(self, gaussian_packet):
         f2g_msg = self.convert_f2g_msg_to_ros_msg(gaussian_packet)
-        f2g_msg.msg = 'Publishing: %s - Hello World from frontend: %d' % (f2g_msg.msg, self.msg_counter_f2g)
+        #f2g_msg.msg = 'Publishing: %s - Hello World from frontend: %d' % (f2g_msg.msg, self.msg_counter_f2g)
 
         self.f2g_publisher.publish(f2g_msg)
         self.get_logger().info('Publishing: %s - Hello World from frontend: %d' % (f2g_msg.msg, self.msg_counter_f2g))
@@ -620,6 +644,10 @@ class FrontEnd(Node):
         return f2g_msg
 
     def get_camera_msg_from_viewpoint(self, viewpoint):
+
+        if viewpoint is None:
+            return None
+
         viewpoint_msg = CameraMsg()
         viewpoint_msg.uid = viewpoint.uid
         viewpoint_msg.device = viewpoint.device
@@ -646,7 +674,13 @@ class FrontEnd(Node):
         return viewpoint_msg
 
     def g2f_listener_callback(self, g2f_msg):
-        pass
+        self.get_logger().info('I heard from gui: %s' % g2f_msg.msg)
+        self.pause = g2f_msg.pause
+        if self.pause:
+            self.publish_message_to_backend(tag="pause")
+        else:
+            self.publish_message_to_backend(tag="unpause")
+
 
     def run(self, projection_matrix):
 
@@ -661,6 +695,11 @@ class FrontEnd(Node):
         #         return
         #     else:
         #         self.backend_queue.put(["unpause"])
+
+
+        if self.pause:
+            return
+
 
         #Log(f"Current Frame ID: {self.cur_frame_idx}", tag=f"FrontEnd_{self.frontend_id}")
 

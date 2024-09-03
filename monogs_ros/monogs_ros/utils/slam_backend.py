@@ -231,12 +231,18 @@ class BackEnd(Node):
 
     def convert_from_ros_msg(self, f2b_msg):
         frontend_id = f2b_msg.frontend_id
-        cur_frame_idx = f2b_msg.cur_frame_idx
+        if f2b_msg.msg == "pause" or f2b_msg.msg == "unpause":
+            cur_frame_idx = None
+            viewpoint = None
+            depth_map = None
+            current_window = None
+        else:
+            cur_frame_idx = f2b_msg.cur_frame_idx
 
-        viewpoint = self.get_viewpoint_from_cam_msg(f2b_msg.viewpoint)
+            viewpoint = self.get_viewpoint_from_cam_msg(f2b_msg.viewpoint)
 
-        depth_map = self.convert_ros_multi_array_message_to_numpy(f2b_msg.depth_map)
-        current_window = self.convert_ros_array_message_to_tensor(f2b_msg.current_window, self.device).tolist()
+            depth_map = self.convert_ros_multi_array_message_to_numpy(f2b_msg.depth_map)
+            current_window = self.convert_ros_array_message_to_tensor(f2b_msg.current_window, self.device).tolist()
 
         return frontend_id, cur_frame_idx, viewpoint, depth_map, current_window
 
@@ -406,20 +412,39 @@ class BackEnd(Node):
 
         num_dims = np_arr.ndim
 
-        if num_dims >= 1:
+        if num_dims == 2:
             # Define the layout of the array
             dim0 = MultiArrayDimension()
             dim0.label = "dim0"
             dim0.size = np_arr.shape[0]
             dim0.stride = np_arr.shape[1] # num of columns per row
 
-        if num_dims >= 2:
             dim1 = MultiArrayDimension()
             dim1.label = "dim1"
             dim1.size = np_arr.shape[1]
             dim1.stride = 1
+            ros_multiarray_msg.layout.dim = [dim0, dim1]
 
-        ros_multiarray_msg.layout.dim = [dim0, dim1]
+        elif num_dims == 3:
+            # Define the layout of the array
+            dim0 = MultiArrayDimension()
+            dim0.label = "dim0"
+            dim0.size = np_arr.shape[0]
+            dim0.stride = np_arr.shape[1]*np_arr.shape[2] # num of columns per row
+
+            dim1 = MultiArrayDimension()
+            dim1.label = "dim1"
+            dim1.size = np_arr.shape[1]
+            dim1.stride = np_arr.shape[2]
+
+            dim2 = MultiArrayDimension()
+            dim2.label = "dim1"
+            dim2.size = np_arr.shape[2]
+            dim2.stride = 1
+            ros_multiarray_msg.layout.dim = [dim0, dim1, dim2]
+        elif num_dims > 3:
+            print("#Dimensions is > 3")
+
         ros_multiarray_msg.layout.data_offset = 0
 
         # Flatten the data and assign it to the message
