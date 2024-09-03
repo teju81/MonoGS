@@ -920,7 +920,7 @@ def main():
 
     params_gui = {}
 
-    config = "/monogs_ros_ws/src/monogs_ros/monogs_ros/configs/rgbd/tum/fr1_desk.yaml"
+    config_file = "/monogs_ros_ws/src/monogs_ros/monogs_ros/configs/rgbd/tum/fr1_desk.yaml"
 
     with open(config_file, "r") as yml:
         config = yaml.safe_load(yml)
