@@ -96,7 +96,7 @@ class SLAM_GUI(Node):
 
 
         self.queue_size_ = 10
-        self.msg_counter = 0
+        self.msg_counter_g2f = 0
 
 
         self.g2f_publisher = self.create_publisher(G2F, '/Gui2Front', self.queue_size_)
@@ -381,21 +381,24 @@ class SLAM_GUI(Node):
                     self.widget3d.scene.remove_geometry(name)
 
     def _on_button(self, is_on):
-        packet = Packet_vis2main()
-        packet.flag_pause = not self.button.is_on
+        #packet = Packet_vis2main()
+        #packet.flag_pause = not self.button.is_on
         #self.q_vis2main.put(packet)
-        self.publish_message_to_frontend(packet)
+        g2f_msg = G2F()
+        g2f_msg.msg = "(un)pause"
+        g2f_msg.pause = not self.button.is_on
+        self.publish_message_to_frontend(g2f_msg)
 
     def _on_slider(self, value):
         packet = self.prepare_viz2main_packet()
         #self.q_vis2main.put(packet)
-        self.publish_message_to_frontend(packet)
+        #self.publish_message_to_frontend(packet)
 
     def _on_render_btn(self):
         packet = Packet_vis2main()
         packet.flag_nextbatch = True
         #self.q_vis2main.put(packet)
-        self.publish_message_to_frontend(packet)
+        #self.publish_message_to_frontend(packet)
 
     def _on_screenshot_btn(self):
         if self.render_img is None:
@@ -872,8 +875,12 @@ class SLAM_GUI(Node):
             # self.q_main2vis = None
             self.process_finished = True
 
-    def publish_message_to_frontend(self, packet):
-        pass
+    def publish_message_to_frontend(self, g2f_msg):
+        g2f_msg.msg = "(un)pause"
+
+        self.g2f_publisher.publish(g2f_msg)
+        self.get_logger().info('Publishing: %s - Hello World from gui: %d' % (g2f_msg.msg, self.msg_counter_g2f))
+        self.msg_counter_g2f += 1
 
     def scene_update(self):
         if self.received_f2g_msg:
