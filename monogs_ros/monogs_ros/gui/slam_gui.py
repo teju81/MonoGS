@@ -884,7 +884,6 @@ class SLAM_GUI(Node):
 
     def scene_update(self):
         if self.received_f2g_msg:
-            print("here...")
             self.render_gui()
             self.received_f2g_msg = False
 
