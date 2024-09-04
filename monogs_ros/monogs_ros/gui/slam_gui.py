@@ -95,7 +95,7 @@ class SLAM_GUI(Node):
         self.save_path.mkdir(parents=True, exist_ok=True)
 
 
-        self.queue_size_ = 10
+        self.queue_size_ = 100
         self.msg_counter_g2f = 0
 
 
@@ -883,7 +883,7 @@ class SLAM_GUI(Node):
         self.msg_counter_g2f += 1
 
     def scene_update(self):
-        if self.received_f2g_msg:
+        if self.received_f2g_msg and self.gaussian_cur is not None:
             self.render_gui()
             self.received_f2g_msg = False
 

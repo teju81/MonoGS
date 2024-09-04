@@ -55,7 +55,7 @@ class BackEnd(Node):
         self.initialized = not self.monocular
         self.keyframe_optimizers = None
 
-        self.queue_size_ = 10
+        self.queue_size_ = 100
         self.msg_counter = 0
         self.b2f_publisher = self.create_publisher(B2F, '/Back2Front', self.queue_size_)
 

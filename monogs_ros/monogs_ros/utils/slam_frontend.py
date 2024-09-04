@@ -57,7 +57,7 @@ class FrontEnd(Node):
         self.pause = False
 
 
-        self.queue_size_ = 10
+        self.queue_size_ = 100
         self.f2b_publisher = self.create_publisher(F2B, '/Front2Back', self.queue_size_)
         self.msg_counter_f2b = 0
 
