@@ -20,14 +20,14 @@ def load_image_descriptors(dataset):
         # Load images and convert them to grayscale
         img_color, _, _ = dataset[idx]  # Load first image in grayscale
 
-        descriptors = calc_descriptor_from_dataset_image(img_color)
+        _, descriptors = calc_keypoint_descriptor_from_dataset_image(img_color)
 
         descriptor_list.append(descriptors)
     print("Done!!!")
 
     return descriptor_list
 
-def calc_descriptor_from_dataset_image(tensor_img_color):
+def calc_keypoint_descriptor_from_dataset_image(tensor_img_color):
         numpy_img = tensor_img_color.cpu().permute(1, 2, 0).numpy()
         numpy_img = (numpy_img * 255).astype(np.uint8)
 
@@ -40,7 +40,8 @@ def calc_descriptor_from_dataset_image(tensor_img_color):
         keypoints, descriptors = orb.detectAndCompute(img_gray, None)
         descriptors = np.array(descriptors, dtype=np.float32)
 
-        return descriptors
+
+        return keypoints, descriptors
 
 def test_vocab_creation(dataset):
     # Need to add dbow3 here
@@ -54,7 +55,7 @@ def test_vocab_creation(dataset):
         # Load images and convert them to grayscale
         img_color, _, _ = dataset[idx]  # Load first image in grayscale
 
-        descriptors = calc_descriptor_from_dataset_image(img_color)
+        _, descriptors = calc_keypoint_descriptor_from_dataset_image(img_color)
 
         descriptor_list.append(descriptors)
     print("Done!!!")
@@ -71,12 +72,12 @@ def test_vocab_creation(dataset):
 
             # Load images and convert them to grayscale
             img1_color, _, _ = dataset[idx1]  # Load first image in grayscale
-            descriptors1 = calc_descriptor_from_dataset_image(img1_color)
+            _, descriptors1 = calc_keypoint_descriptor_from_dataset_image(img1_color)
 
 
             # Load images and convert them to grayscale
             img2_color, _, _ = dataset[idx2]  # Load first image in grayscale
-            descriptors2 = calc_descriptor_from_dataset_image(img2_color)
+            _, descriptors2 = calc_keypoint_descriptor_from_dataset_image(img2_color)
 
             # Transform descriptors into bag-of-words vectors
             bow_vector1 = vocab.transform(descriptors1)
@@ -88,7 +89,7 @@ def test_vocab_creation(dataset):
             print(f'Similarity score between image1 and image2: {similarity_score}')
 
 def test_database(dataset):
-    voc = bow.Vocabulary("ORBvoc.txt")
+    voc = bow.Vocabulary("orbvoc.dbow3", 10, 5, "TF_IDF", "L2_NORM")
     db = bow.Database()
     db.setVocabulary(voc, False, 0)
 
@@ -101,20 +102,71 @@ def test_database(dataset):
 
 
     for i, desc in enumerate(descriptor_list):
-        print(i)
+        #print(i)
         results = db.query(desc, 4)
-        print(results[0].Score)
-        input('Press any key to continue')
+        #print(results[0].Score)
 
-    # print("Saving DB...")
-    # db.save("test_db.db")
-    # print("Done!!!")
+    print("Saving DB...")
+    db.save("database")
+    print("Done!!!")
 
-    # print("Loading DB....")
-    # db_new = bow.Database("test_db.db")
-    # print("Done!!!")
+    print("Loading DB....")
+    db_new = bow.Database("database")
+    print("Done!!!")
 
 
+def place_recognition_test(dataset):
+
+    voc = bow.Vocabulary("ORBvoc.txt")
+    db = bow.Database()
+    db.setVocabulary(voc, False, 0)
+
+    descriptor_list = load_image_descriptors(dataset)
+    db_entry_dict = {}
+    db_count = 0
+    for i, desc in enumerate(descriptor_list):
+        if i % 5 == 0:
+            db.add(desc)
+            db_entry_dict[db_count] = i
+            db_count += 1
+
+    idx = 20
+    num_results = 500
+    desc = descriptor_list[idx]
+    #print(i)
+    results = db.query(desc, num_results)
+    for i in range(num_results):
+        print(f"For {i}-th result, retrieved entry #{results[i].Id} from db and image id:{db_entry_dict[results[i].Id]} with score:{results[i].Score} and num words in common : {results[i].nWords}")
+        # img_color1, _, _ = dataset[idx]
+        # keypoints1, _ = calc_keypoint_descriptor_from_dataset_image(img_color1)
+
+        # numpy_image1 = img_color1.permute(1, 2, 0).cpu().numpy()
+        # numpy_image1 = (numpy_image1 * 255).astype(np.uint8)
+        # opencv_image1 = cv2.cvtColor(numpy_image1, cv2.COLOR_RGB2BGR)
+
+        # # Draw keypoints on the images
+        # img1_keypoints = cv2.drawKeypoints(opencv_image1, keypoints1, None, color=(0,255,0), flags=0)
+
+
+        # q_id = db_entry_dict[results[i].Id]
+        # img_color2, _, _ = dataset[q_id]
+        # keypoints2, _ = calc_keypoint_descriptor_from_dataset_image(img_color2)
+
+        # numpy_image2 = img_color2.permute(1, 2, 0).cpu().numpy()
+        # numpy_image2 = (numpy_image2 * 255).astype(np.uint8)
+        # opencv_image2 = cv2.cvtColor(numpy_image2, cv2.COLOR_RGB2BGR)
+
+        # # Draw keypoints on the images
+        # img2_keypoints = cv2.drawKeypoints(opencv_image2, keypoints2, None, color=(0,255,0), flags=0)
+
+
+        # # Concatenate the two images horizontally
+        # concatenated_images = np.hstack((img1_keypoints, img2_keypoints))
+
+        # # Display the result
+        # cv2.imshow('Keypoints on Images', concatenated_images)
+        # cv2.waitKey(0)
+        # cv2.destroyAllWindows()
 
 
 def main():
@@ -130,7 +182,7 @@ def main():
 
     #test_vocab_creation(dataset)
 
-    test_database(dataset)
+    place_recognition_test(dataset)
 
 
 
