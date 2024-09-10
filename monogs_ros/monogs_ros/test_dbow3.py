@@ -89,7 +89,7 @@ def test_vocab_creation(dataset):
             print(f'Similarity score between image1 and image2: {similarity_score}')
 
 def test_database(dataset):
-    voc = bow.Vocabulary("orbvoc.dbow3", 10, 5, "TF_IDF", "L2_NORM")
+    voc = bow.Vocabulary("orbvoc.dbow3")
     db = bow.Database()
     db.setVocabulary(voc, False, 0)
 
@@ -117,7 +117,7 @@ def test_database(dataset):
 
 def place_recognition_test(dataset):
 
-    voc = bow.Vocabulary("ORBvoc.txt")
+    voc = bow.Vocabulary("orbvoc.dbow3", 10, 5, bow.WeightingType.TF_IDF, bow.ScoringType.DOT_PRODUCT)
     db = bow.Database()
     db.setVocabulary(voc, False, 0)
 
@@ -125,43 +125,49 @@ def place_recognition_test(dataset):
     db_entry_dict = {}
     db_count = 0
     for i, desc in enumerate(descriptor_list):
-        if i % 5 == 0:
-            db.add(desc)
-            db_entry_dict[db_count] = i
-            db_count += 1
+        db.add(desc)
+        db_entry_dict[db_count] = i
+        db_count += 1
 
-    idx = 20
-    num_results = 500
+    idx = 210
+    num_results = 100
     desc = descriptor_list[idx]
     #print(i)
     results = db.query(desc, num_results)
     for i in range(num_results):
-        print(f"For {i}-th result, retrieved entry #{results[i].Id} from db and image id:{db_entry_dict[results[i].Id]} with score:{results[i].Score} and num words in common : {results[i].nWords}")
-        # img_color1, _, _ = dataset[idx]
-        # keypoints1, _ = calc_keypoint_descriptor_from_dataset_image(img_color1)
+        img_color1, _, _ = dataset[idx]
+        keypoints1, descriptors1 = calc_keypoint_descriptor_from_dataset_image(img_color1)
 
-        # numpy_image1 = img_color1.permute(1, 2, 0).cpu().numpy()
-        # numpy_image1 = (numpy_image1 * 255).astype(np.uint8)
-        # opencv_image1 = cv2.cvtColor(numpy_image1, cv2.COLOR_RGB2BGR)
+        numpy_image1 = img_color1.permute(1, 2, 0).cpu().numpy()
+        numpy_image1 = (numpy_image1 * 255).astype(np.uint8)
+        opencv_image1 = cv2.cvtColor(numpy_image1, cv2.COLOR_RGB2BGR)
 
-        # # Draw keypoints on the images
-        # img1_keypoints = cv2.drawKeypoints(opencv_image1, keypoints1, None, color=(0,255,0), flags=0)
-
-
-        # q_id = db_entry_dict[results[i].Id]
-        # img_color2, _, _ = dataset[q_id]
-        # keypoints2, _ = calc_keypoint_descriptor_from_dataset_image(img_color2)
-
-        # numpy_image2 = img_color2.permute(1, 2, 0).cpu().numpy()
-        # numpy_image2 = (numpy_image2 * 255).astype(np.uint8)
-        # opencv_image2 = cv2.cvtColor(numpy_image2, cv2.COLOR_RGB2BGR)
-
-        # # Draw keypoints on the images
-        # img2_keypoints = cv2.drawKeypoints(opencv_image2, keypoints2, None, color=(0,255,0), flags=0)
+        # Draw keypoints on the images
+        img1_keypoints = cv2.drawKeypoints(opencv_image1, keypoints1, None, color=(0,255,0), flags=0)
 
 
-        # # Concatenate the two images horizontally
-        # concatenated_images = np.hstack((img1_keypoints, img2_keypoints))
+        q_id = db_entry_dict[results[i].Id]
+        img_color2, _, _ = dataset[q_id]
+        keypoints2, descriptors2 = calc_keypoint_descriptor_from_dataset_image(img_color2)
+
+        # Transform descriptors into bag-of-words vectors
+        bow_vector1 = voc.transform(descriptors1)
+        bow_vector2 = voc.transform(descriptors2)
+
+        # Compute similarity between images
+        similarity_score = voc.score(bow_vector1, bow_vector2)
+        print(f"For {i}-th result, retrieved entry #{results[i].Id} from db and image id:{db_entry_dict[results[i].Id]} with score:{results[i].Score}, similarity score: {similarity_score} and num words in common : {results[i].nWords}")
+
+        numpy_image2 = img_color2.permute(1, 2, 0).cpu().numpy()
+        numpy_image2 = (numpy_image2 * 255).astype(np.uint8)
+        opencv_image2 = cv2.cvtColor(numpy_image2, cv2.COLOR_RGB2BGR)
+
+        # Draw keypoints on the images
+        img2_keypoints = cv2.drawKeypoints(opencv_image2, keypoints2, None, color=(0,255,0), flags=0)
+
+
+        # Concatenate the two images horizontally
+        concatenated_images = np.hstack((img1_keypoints, img2_keypoints))
 
         # # Display the result
         # cv2.imshow('Keypoints on Images', concatenated_images)
