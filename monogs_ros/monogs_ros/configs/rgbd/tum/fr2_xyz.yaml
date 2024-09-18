@@ -1,7 +1,7 @@
-inherit_from: "configs/rgbd/tum/base_config.yaml"
+inherit_from: "/root/code/monogs_ros_ws/src/monogs_ros/monogs_ros/configs/rgbd/tum/base_config.yaml"
 
 Dataset:
-  dataset_path: "datasets/tum/rgbd_dataset_freiburg2_xyz"
+  dataset_path: "/root/code/datasets/tum/rgbd_dataset_freiburg1_desk"
   Calibration:
     fx: 520.90862
     fy: 521.007327
