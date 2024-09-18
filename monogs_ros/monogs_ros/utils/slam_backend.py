@@ -21,6 +21,13 @@ from monogs_ros.utils.dataset import load_dataset
 
 from munch import munchify
 from monogs_ros.gaussian_splatting.scene.gaussian_model import GaussianModel
+from monogs_ros.utils.ros_utils import (
+    convert_ros_array_message_to_tensor, 
+    convert_ros_multi_array_message_to_tensor, 
+    convert_tensor_to_ros_message, 
+    convert_numpy_array_to_ros_message, 
+    convert_ros_multi_array_message_to_numpy, 
+)
 
 from monogs_ros.gaussian_splatting.gaussian_renderer import render
 from monogs_ros.gaussian_splatting.utils.loss_utils import l1_loss, ssim
@@ -159,11 +166,11 @@ class BackEnd(Node):
         device = cam_msg.device
 
         gt_pose = torch.eye(4, device=device)
-        gt_pose[:3,:3] = self.convert_ros_multi_array_message_to_tensor(cam_msg.rot_gt, device)
-        gt_pose[:3,3] = self.convert_ros_array_message_to_tensor(cam_msg.trans_gt, device)
+        gt_pose[:3,:3] = convert_ros_multi_array_message_to_tensor(cam_msg.rot_gt, device)
+        gt_pose[:3,3] = convert_ros_array_message_to_tensor(cam_msg.trans_gt, device)
 
-        gt_color = self.convert_ros_multi_array_message_to_tensor(cam_msg.original_image, device)
-        gt_depth = self.convert_ros_multi_array_message_to_numpy(cam_msg.depth)
+        gt_color = convert_ros_multi_array_message_to_tensor(cam_msg.original_image, device)
+        gt_depth = convert_ros_multi_array_message_to_numpy(cam_msg.depth)
         fx = cam_msg.fx
         fy = cam_msg.fy
         cx = cam_msg.cx
@@ -204,18 +211,18 @@ class BackEnd(Node):
         )
 
         viewpoint.uid = cam_msg.uid
-        viewpoint.R = self.convert_ros_multi_array_message_to_tensor(cam_msg.rot, device)
-        viewpoint.T = self.convert_ros_array_message_to_tensor(cam_msg.trans, device)
-        viewpoint.cam_rot_delta = nn.Parameter(self.convert_ros_array_message_to_tensor(cam_msg.cam_rot_delta, device).requires_grad_(True))
-        viewpoint.cam_trans_delta = nn.Parameter(self.convert_ros_array_message_to_tensor(cam_msg.cam_trans_delta, device).requires_grad_(True))
+        viewpoint.R = convert_ros_multi_array_message_to_tensor(cam_msg.rot, device)
+        viewpoint.T = convert_ros_array_message_to_tensor(cam_msg.trans, device)
+        viewpoint.cam_rot_delta = nn.Parameter(convert_ros_array_message_to_tensor(cam_msg.cam_rot_delta, device).requires_grad_(True))
+        viewpoint.cam_trans_delta = nn.Parameter(convert_ros_array_message_to_tensor(cam_msg.cam_trans_delta, device).requires_grad_(True))
         viewpoint.exposure_a = nn.Parameter(torch.tensor(cam_msg.exposure_a, requires_grad=True, device=device))
         viewpoint.exposure_b = nn.Parameter(torch.tensor(cam_msg.exposure_b, requires_grad=True, device=device))
-        viewpoint.projection_matrix = self.convert_ros_multi_array_message_to_tensor(cam_msg.projection_matrix, device)
-        viewpoint.R_gt = self.convert_ros_multi_array_message_to_tensor(cam_msg.rot_gt, device)
-        viewpoint.T_gt = self.convert_ros_array_message_to_tensor(cam_msg.trans_gt, device)
+        viewpoint.projection_matrix = convert_ros_multi_array_message_to_tensor(cam_msg.projection_matrix, device)
+        viewpoint.R_gt = convert_ros_multi_array_message_to_tensor(cam_msg.rot_gt, device)
+        viewpoint.T_gt = convert_ros_array_message_to_tensor(cam_msg.trans_gt, device)
 
-        viewpoint.original_image = self.convert_ros_multi_array_message_to_tensor(cam_msg.original_image, device)
-        viewpoint.depth = self.convert_ros_multi_array_message_to_numpy(cam_msg.depth)
+        viewpoint.original_image = convert_ros_multi_array_message_to_tensor(cam_msg.original_image, device)
+        viewpoint.depth = convert_ros_multi_array_message_to_numpy(cam_msg.depth)
         viewpoint.fx = cam_msg.fx
         viewpoint.fy = cam_msg.fy
         viewpoint.cx = cam_msg.cx
@@ -241,65 +248,10 @@ class BackEnd(Node):
 
             viewpoint = self.get_viewpoint_from_cam_msg(f2b_msg.viewpoint)
 
-            depth_map = self.convert_ros_multi_array_message_to_numpy(f2b_msg.depth_map)
-            current_window = self.convert_ros_array_message_to_tensor(f2b_msg.current_window, self.device).tolist()
+            depth_map = convert_ros_multi_array_message_to_numpy(f2b_msg.depth_map)
+            current_window = convert_ros_array_message_to_tensor(f2b_msg.current_window, self.device).tolist()
 
         return frontend_id, cur_frame_idx, viewpoint, depth_map, current_window
-
-    def convert_ros_multi_array_message_to_numpy(self, ros_multiarray_msg):
-
-        num_dims = len(ros_multiarray_msg.layout.dim)
-
-        # Extract the dimensions from the layout
-        dim0 = ros_multiarray_msg.layout.dim[0].size
-        dim1 = ros_multiarray_msg.layout.dim[1].size
-        if num_dims == 2:
-            dims = (dim0, dim1)
-        else:
-            dim2 = ros_multiarray_msg.layout.dim[2].size
-            dims = (dim0, dim1, dim2)
-
-        # Convert the flat array back into a 2D numpy array
-        if isinstance(ros_multiarray_msg, Float32MultiArray):
-            data = np.array(ros_multiarray_msg.data, dtype=np.float32).reshape(dims)
-        elif isinstance(ros_multiarray_msg, Int32MultiArray):
-            data = np.array(ros_multiarray_msg.data, dtype=np.int32).reshape(dims)
-
-        return data
-
-    def convert_ros_multi_array_message_to_tensor(self, ros_multiarray_msg, device):
-
-        num_dims = len(ros_multiarray_msg.layout.dim)
-
-        # Extract the dimensions from the layout
-        dim0 = ros_multiarray_msg.layout.dim[0].size
-        dim1 = ros_multiarray_msg.layout.dim[1].size
-        if num_dims == 2:
-            dims = (dim0, dim1)
-        else:
-            dim2 = ros_multiarray_msg.layout.dim[2].size
-            dims = (dim0, dim1, dim2)
-
-        # Convert the flat array back into a 2D numpy array
-        if isinstance(ros_multiarray_msg, Float32MultiArray):
-            data = torch.reshape(torch.tensor(ros_multiarray_msg.data, dtype=torch.float32, device=device), dims)
-        elif isinstance(ros_multiarray_msg, Int32MultiArray):
-            data = torch.reshape(torch.tensor(ros_multiarray_msg.data, dtype=torch.int32, device=device), dims)
-
-        return data
-
-
-    def convert_ros_array_message_to_tensor(self, ros_array_msg, device):
-
-        if all(isinstance(i, int) for i in ros_array_msg):
-            data = torch.tensor(ros_array_msg, dtype=torch.int32, device=device)
-        elif all(isinstance(i, float) for i in ros_array_msg):
-            data = torch.tensor(ros_array_msg, dtype=torch.float32, device=device)
-
-        return data
-
-
-
 
 
     def publish_message_to_frontend(self, tag, gaussian, oav_dict, keyframes):
@@ -320,14 +272,14 @@ class BackEnd(Node):
         b2f_msg.gaussian.max_sh_degree = gaussian.max_sh_degree
         # np_arr = np.random.rand(2,3)
         # tensor_msg = torch.from_numpy(np_arr)
-        b2f_msg.gaussian.xyz = self.convert_tensor_to_ros_message(gaussian._xyz)
-        b2f_msg.gaussian.features_dc = self.convert_tensor_to_ros_message(gaussian._features_dc)
-        b2f_msg.gaussian.features_rest = self.convert_tensor_to_ros_message(gaussian._features_rest)
-        b2f_msg.gaussian.scaling = self.convert_tensor_to_ros_message(gaussian._scaling)
-        b2f_msg.gaussian.rotation = self.convert_tensor_to_ros_message(gaussian._rotation)
-        b2f_msg.gaussian.opacity = self.convert_tensor_to_ros_message(gaussian._opacity)
+        b2f_msg.gaussian.xyz = convert_tensor_to_ros_message(gaussian._xyz)
+        b2f_msg.gaussian.features_dc = convert_tensor_to_ros_message(gaussian._features_dc)
+        b2f_msg.gaussian.features_rest = convert_tensor_to_ros_message(gaussian._features_rest)
+        b2f_msg.gaussian.scaling = convert_tensor_to_ros_message(gaussian._scaling)
+        b2f_msg.gaussian.rotation = convert_tensor_to_ros_message(gaussian._rotation)
+        b2f_msg.gaussian.opacity = convert_tensor_to_ros_message(gaussian._opacity)
         b2f_msg.gaussian.max_radii2d = gaussian.max_radii2D.tolist()
-        b2f_msg.gaussian.xyz_gradient_accum = self.convert_tensor_to_ros_message(gaussian.xyz_gradient_accum)
+        b2f_msg.gaussian.xyz_gradient_accum = convert_tensor_to_ros_message(gaussian.xyz_gradient_accum)
         b2f_msg.gaussian.unique_kfids = gaussian.unique_kfIDs.tolist()
         b2f_msg.gaussian.n_obs = gaussian.n_obs.tolist()
 
@@ -340,117 +292,11 @@ class BackEnd(Node):
         for i in range(len(keyframes)):
             keyframe_msg = Keyframe()
             keyframe_msg.kf_idx = keyframes[i][0]
-            keyframe_msg.rot = self.convert_tensor_to_ros_message(keyframes[i][1])
+            keyframe_msg.rot = convert_tensor_to_ros_message(keyframes[i][1])
             keyframe_msg.trans = keyframes[i][2].tolist()
             b2f_msg.keyframes.append(keyframe_msg)
 
         return b2f_msg
-
-
-    def convert_tensor_to_ros_message(self, tensor_msg):
-        if tensor_msg.dtype == torch.float32 or tensor_msg.dtype == torch.float64:
-            ros_multiarray_msg = Float32MultiArray()
-        elif tensor_msg.dtype == torch.int32 or tensor_msg.dtype == torch.int64:
-            ros_multiarray_msg = Int32MultiArray()
-
-        # If empty tensor
-        if tensor_msg.shape[0] == 0:
-            return ros_multiarray_msg
-
-        num_dims = len(tensor_msg.size())
-
-        if num_dims == 2:
-            # Define the layout of the array
-            dim0 = MultiArrayDimension()
-            dim0.label = "dim0"
-            dim0.size = tensor_msg.shape[0]
-            dim0.stride = tensor_msg.shape[1] # num of columns per row
-
-            dim1 = MultiArrayDimension()
-            dim1.label = "dim1"
-            dim1.size = tensor_msg.shape[1]
-            dim1.stride = 1
-            ros_multiarray_msg.layout.dim = [dim0, dim1]
-
-        elif num_dims == 3:
-            # Define the layout of the array
-            dim0 = MultiArrayDimension()
-            dim0.label = "dim0"
-            dim0.size = tensor_msg.shape[0]
-            dim0.stride = tensor_msg.shape[1]*tensor_msg.shape[2] # num of columns per row
-
-            dim1 = MultiArrayDimension()
-            dim1.label = "dim1"
-            dim1.size = tensor_msg.shape[1]
-            dim1.stride = tensor_msg.shape[2]
-
-            dim2 = MultiArrayDimension()
-            dim2.label = "dim1"
-            dim2.size = tensor_msg.shape[2]
-            dim2.stride = 1
-            ros_multiarray_msg.layout.dim = [dim0, dim1, dim2]
-        elif num_dims > 3:
-            print("#Dimensions is > 3")
-
-        ros_multiarray_msg.layout.data_offset = 0
-
-        # Flatten the data and assign it to the message
-        ros_multiarray_msg.data = tensor_msg.flatten().tolist()
-
-        return ros_multiarray_msg
-
-
-    def convert_numpy_array_to_ros_message(self, np_arr):
-        if np_arr.dtype == np.float32 or np_arr.dtype == np.float64:
-            ros_multiarray_msg = Float32MultiArray()
-        elif np_arr.dtype == np.int32 or np_arr.dtype == np.int32:
-            ros_multiarray_msg = Int32MultiArray()
-
-        # If empty tensor
-        if np_arr.shape[0] == 0:
-            return ros_multiarray_msg
-
-        num_dims = np_arr.ndim
-
-        if num_dims == 2:
-            # Define the layout of the array
-            dim0 = MultiArrayDimension()
-            dim0.label = "dim0"
-            dim0.size = np_arr.shape[0]
-            dim0.stride = np_arr.shape[1] # num of columns per row
-
-            dim1 = MultiArrayDimension()
-            dim1.label = "dim1"
-            dim1.size = np_arr.shape[1]
-            dim1.stride = 1
-            ros_multiarray_msg.layout.dim = [dim0, dim1]
-
-        elif num_dims == 3:
-            # Define the layout of the array
-            dim0 = MultiArrayDimension()
-            dim0.label = "dim0"
-            dim0.size = np_arr.shape[0]
-            dim0.stride = np_arr.shape[1]*np_arr.shape[2] # num of columns per row
-
-            dim1 = MultiArrayDimension()
-            dim1.label = "dim1"
-            dim1.size = np_arr.shape[1]
-            dim1.stride = np_arr.shape[2]
-
-            dim2 = MultiArrayDimension()
-            dim2.label = "dim1"
-            dim2.size = np_arr.shape[2]
-            dim2.stride = 1
-            ros_multiarray_msg.layout.dim = [dim0, dim1, dim2]
-        elif num_dims > 3:
-            print("#Dimensions is > 3")
-
-        ros_multiarray_msg.layout.data_offset = 0
-
-        # Flatten the data and assign it to the message
-        ros_multiarray_msg.data = np_arr.flatten().tolist()
-
-        return ros_multiarray_msg
 
     def set_hyperparams(self):
         self.save_results = self.config["Results"]["save_results"]

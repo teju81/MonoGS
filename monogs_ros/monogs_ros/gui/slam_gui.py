@@ -15,6 +15,13 @@ from monogs_ros.gaussian_splatting.utils.graphics_utils import getProjectionMatr
 
 import yaml
 from monogs_ros.utils.config_utils import load_config
+from monogs_ros.utils.ros_utils import (
+    convert_ros_array_message_to_tensor, 
+    convert_ros_multi_array_message_to_tensor, 
+    convert_tensor_to_ros_message, 
+    convert_numpy_array_to_ros_message, 
+    convert_ros_multi_array_message_to_numpy, 
+)
 
 from munch import munchify
 from monogs_ros.gaussian_splatting.scene.gaussian_model import GaussianModel
@@ -636,72 +643,17 @@ class SLAM_GUI(Node):
         self.render_img = self.render_o3d_image(results, current_cam)
         self.widget3d.scene.set_background([0, 0, 0, 1], self.render_img)
 
-    def convert_ros_multi_array_message_to_numpy(self, ros_multiarray_msg):
-
-        num_dims = len(ros_multiarray_msg.layout.dim)
-        if num_dims == 0:
-            return None
-
-        # Extract the dimensions from the layout
-        dim0 = ros_multiarray_msg.layout.dim[0].size
-        dim1 = ros_multiarray_msg.layout.dim[1].size
-        if num_dims == 2:
-            dims = (dim0, dim1)
-        else:
-            dim2 = ros_multiarray_msg.layout.dim[2].size
-            dims = (dim0, dim1, dim2)
-
-        # Convert the flat array back into a 2D numpy array
-        if isinstance(ros_multiarray_msg, Float32MultiArray):
-            data = np.array(ros_multiarray_msg.data, dtype=np.float32).reshape(dims)
-        elif isinstance(ros_multiarray_msg, Int32MultiArray):
-            data = np.array(ros_multiarray_msg.data, dtype=np.int32).reshape(dims)
-
-        return data
-
-    def convert_ros_multi_array_message_to_tensor(self, ros_multiarray_msg, device):
-
-        num_dims = len(ros_multiarray_msg.layout.dim)
-        if num_dims == 0:
-            return None
-
-        # Extract the dimensions from the layout
-        dim0 = ros_multiarray_msg.layout.dim[0].size
-        dim1 = ros_multiarray_msg.layout.dim[1].size
-        if num_dims == 2:
-            dims = (dim0, dim1)
-        else:
-            dim2 = ros_multiarray_msg.layout.dim[2].size
-            dims = (dim0, dim1, dim2)
-
-        # Convert the flat array back into a 2D numpy array
-        if isinstance(ros_multiarray_msg, Float32MultiArray):
-            data = torch.reshape(torch.tensor(ros_multiarray_msg.data, dtype=torch.float32, device=device), dims)
-        elif isinstance(ros_multiarray_msg, Int32MultiArray):
-            data = torch.reshape(torch.tensor(ros_multiarray_msg.data, dtype=torch.int32, device=device), dims)
-
-        return data
-
-    def convert_ros_array_message_to_tensor(self, ros_array_msg, device):
-
-        if all(isinstance(i, int) for i in ros_array_msg):
-            data = torch.tensor(ros_array_msg, dtype=torch.int32, device=device)
-        elif all(isinstance(i, float) for i in ros_array_msg):
-            data = torch.tensor(ros_array_msg, dtype=torch.float32, device=device)
-
-        return data
-
     def get_viewpoint_from_cam_msg(self, cam_msg):
 
         cur_frame_idx = cam_msg.uid
         device = cam_msg.device
 
         gt_pose = torch.eye(4, device=device)
-        gt_pose[:3,:3] = self.convert_ros_multi_array_message_to_tensor(cam_msg.rot_gt, device)
-        gt_pose[:3,3] = self.convert_ros_array_message_to_tensor(cam_msg.trans_gt, device)
+        gt_pose[:3,:3] = convert_ros_multi_array_message_to_tensor(cam_msg.rot_gt, device)
+        gt_pose[:3,3] = convert_ros_array_message_to_tensor(cam_msg.trans_gt, device)
 
-        gt_color = self.convert_ros_multi_array_message_to_tensor(cam_msg.original_image, device)
-        gt_depth = self.convert_ros_multi_array_message_to_numpy(cam_msg.depth)
+        gt_color = convert_ros_multi_array_message_to_tensor(cam_msg.original_image, device)
+        gt_depth = convert_ros_multi_array_message_to_numpy(cam_msg.depth)
         fx = cam_msg.fx
         fy = cam_msg.fy
         cx = cam_msg.cx
@@ -742,18 +694,18 @@ class SLAM_GUI(Node):
         )
 
         viewpoint.uid = cam_msg.uid
-        viewpoint.R = self.convert_ros_multi_array_message_to_tensor(cam_msg.rot, device)
-        viewpoint.T = self.convert_ros_array_message_to_tensor(cam_msg.trans, device)
-        viewpoint.cam_rot_delta = nn.Parameter(self.convert_ros_array_message_to_tensor(cam_msg.cam_rot_delta, device).requires_grad_(True))
-        viewpoint.cam_trans_delta = nn.Parameter(self.convert_ros_array_message_to_tensor(cam_msg.cam_trans_delta, device).requires_grad_(True))
+        viewpoint.R = convert_ros_multi_array_message_to_tensor(cam_msg.rot, device)
+        viewpoint.T = convert_ros_array_message_to_tensor(cam_msg.trans, device)
+        viewpoint.cam_rot_delta = nn.Parameter(convert_ros_array_message_to_tensor(cam_msg.cam_rot_delta, device).requires_grad_(True))
+        viewpoint.cam_trans_delta = nn.Parameter(convert_ros_array_message_to_tensor(cam_msg.cam_trans_delta, device).requires_grad_(True))
         viewpoint.exposure_a = nn.Parameter(torch.tensor(cam_msg.exposure_a, requires_grad=True, device=device))
         viewpoint.exposure_b = nn.Parameter(torch.tensor(cam_msg.exposure_b, requires_grad=True, device=device))
-        viewpoint.projection_matrix = self.convert_ros_multi_array_message_to_tensor(cam_msg.projection_matrix, device)
-        viewpoint.R_gt = self.convert_ros_multi_array_message_to_tensor(cam_msg.rot_gt, device)
-        viewpoint.T_gt = self.convert_ros_array_message_to_tensor(cam_msg.trans_gt, device)
+        viewpoint.projection_matrix = convert_ros_multi_array_message_to_tensor(cam_msg.projection_matrix, device)
+        viewpoint.R_gt = convert_ros_multi_array_message_to_tensor(cam_msg.rot_gt, device)
+        viewpoint.T_gt = convert_ros_array_message_to_tensor(cam_msg.trans_gt, device)
 
-        viewpoint.original_image = self.convert_ros_multi_array_message_to_tensor(cam_msg.original_image, device)
-        viewpoint.depth = self.convert_ros_multi_array_message_to_numpy(cam_msg.depth)
+        viewpoint.original_image = convert_ros_multi_array_message_to_tensor(cam_msg.original_image, device)
+        viewpoint.depth = convert_ros_multi_array_message_to_numpy(cam_msg.depth)
         viewpoint.fx = cam_msg.fx
         viewpoint.fy = cam_msg.fy
         viewpoint.cx = cam_msg.cx
@@ -775,19 +727,19 @@ class SLAM_GUI(Node):
             gaussian_packet.active_sh_degree = f2g_msg.active_sh_degree
             gaussian_packet.max_sh_degree = f2g_msg.max_sh_degree
 
-            gaussian_packet.get_xyz = self.convert_ros_multi_array_message_to_tensor(f2g_msg.get_xyz, self.device)
-            gaussian_packet.get_features = self.convert_ros_multi_array_message_to_tensor(f2g_msg.get_features, self.device)
-            gaussian_packet.get_scaling = self.convert_ros_multi_array_message_to_tensor(f2g_msg.get_scaling, self.device)
-            gaussian_packet.get_rotation = self.convert_ros_multi_array_message_to_tensor(f2g_msg.get_rotation, self.device)
-            gaussian_packet.get_opacity = self.convert_ros_multi_array_message_to_tensor(f2g_msg.get_opacity, self.device)
+            gaussian_packet.get_xyz = convert_ros_multi_array_message_to_tensor(f2g_msg.get_xyz, self.device)
+            gaussian_packet.get_features = convert_ros_multi_array_message_to_tensor(f2g_msg.get_features, self.device)
+            gaussian_packet.get_scaling = convert_ros_multi_array_message_to_tensor(f2g_msg.get_scaling, self.device)
+            gaussian_packet.get_rotation = convert_ros_multi_array_message_to_tensor(f2g_msg.get_rotation, self.device)
+            gaussian_packet.get_opacity = convert_ros_multi_array_message_to_tensor(f2g_msg.get_opacity, self.device)
 
 
-            gaussian_packet.unique_kfIDs = self.convert_ros_array_message_to_tensor(f2g_msg.unique_kfids, self.device)
-            gaussian_packet.n_obs = self.convert_ros_array_message_to_tensor(f2g_msg.n_obs, self.device)
+            gaussian_packet.unique_kfIDs = convert_ros_array_message_to_tensor(f2g_msg.unique_kfids, self.device)
+            gaussian_packet.n_obs = convert_ros_array_message_to_tensor(f2g_msg.n_obs, self.device)
 
         if f2g_msg.gtcolor is not None:
-            gaussian_packet.gtcolor = self.convert_ros_multi_array_message_to_tensor(f2g_msg.gtcolor, self.device)
-        gaussian_packet.gtdepth = self.convert_ros_multi_array_message_to_numpy(f2g_msg.gtdepth)
+            gaussian_packet.gtcolor = convert_ros_multi_array_message_to_tensor(f2g_msg.gtcolor, self.device)
+        gaussian_packet.gtdepth = convert_ros_multi_array_message_to_numpy(f2g_msg.gtdepth)
 
 
         gaussian_packet.current_frame = self.get_viewpoint_from_cam_msg(f2g_msg.current_frame)
