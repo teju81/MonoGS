@@ -152,8 +152,7 @@ class BackEnd(Node):
                 )
             self.keyframe_optimizers = torch.optim.Adam(opt_params)
 
-            self.map(self.current_windows, frontend_id, iters=iter_per_kf)
-            self.map(self.current_windows, frontend_id, prune=True)
+            self.keyframe_map_update(frontend_id, iter_per_kf)
             self.push_to_frontend("keyframe", frontend_id)
         else:
             pass
@@ -597,6 +596,27 @@ class BackEnd(Node):
 
             self.publish_message_to_frontend(tag, self.gaussians[i], self.occ_aware_visibility[i], keyframes)
 
+    def periodic_map_update(self, frontend_id):
+
+        # Update the local Gaussian map for the given frontend id by running a single iteration without pruning
+        self.map(self.current_windows,frontend_id)
+
+        #After running the above update atleast 10 times, update the Gaussian over 10 iterations and prune
+        if self.last_sent[frontend_id] >= 10:
+            self.map(self.current_windows, frontend_id, prune=True, iters=10)
+
+        self.update_covisibility()
+
+    def keyframe_map_update(self, frontend_id, iter_per_kf):
+        self.map(self.current_windows, frontend_id, iters=iter_per_kf)
+        self.map(self.current_windows, frontend_id, prune=True)
+
+        self.update_covisibility()
+
+    def update_covisibility(self):
+
+        pass
+
     def run(self):
 
         if self.pause:
@@ -610,13 +630,8 @@ class BackEnd(Node):
         for i in range(self.num_tum_cameras):
             if len(self.current_windows[i]) == 0:
                 return
-            # Update the local Gaussian map for the given frontend id by running a single iteration without pruning
-            self.map(self.current_windows,i)
-
-            #After running the above update atleast 10 times, update the Gaussian over 10 iterations and prune
-            if self.last_sent[i] >= 10:
-                self.map(self.current_windows, i, prune=True, iters=10)
-                self.push_to_frontend("sync_backend",i)
+            self.periodic_map_update(i)
+            self.push_to_frontend("sync_backend",i)
 
         return
 
