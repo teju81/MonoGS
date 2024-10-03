@@ -25,6 +25,7 @@ class Camera(nn.Module):
     ):
         super(Camera, self).__init__()
         self.uid = uid
+        self.kf_uid = None
         self.device = device
 
         T = torch.eye(4, device=device)
@@ -45,6 +46,13 @@ class Camera(nn.Module):
         self.FoVy = fovy
         self.image_height = image_height
         self.image_width = image_width
+
+        # Place Recognition Related Variables
+        self.BowList = []
+        self.PlaceRecognitionQueryUID = None
+        self.PlaceRecognitionWords = 0
+        self.PlaceRecognitionScore = 0.0
+        self.sim_score = 0.0
 
         self.cam_rot_delta = nn.Parameter(
             torch.zeros(3, requires_grad=True, device=device)
@@ -152,3 +160,16 @@ class Camera(nn.Module):
 
         self.exposure_a = None
         self.exposure_b = None
+
+
+    def GetConnectedKeyFrames(self):
+        
+        # Process Covisibility Graph and return a set of key frames
+
+        pass
+
+    def GetBestCovisibilityKeyFrames(self, numNeighbours):
+
+        # From the sorted covisibility key frame list return a set of the first numNeighbours Key Frames
+
+        pass
