@@ -323,10 +323,15 @@ class BackEnd(Node):
             else False
         )
 
+    def ComputeBoW(self, viewpoint):
+        pass
+
     def add_next_kf(self, frontend_id, frame_idx, viewpoint, init=False, scale=2.0, depth_map=None):
         self.gaussians[frontend_id].extend_from_pcd_seq(
             viewpoint, kf_id=frame_idx, init=init, scale=scale, depthmap=depth_map
         )
+
+        self.ComputeBoW(viewpoint)
 
     def reset(self):
         self.iteration_count = 0
