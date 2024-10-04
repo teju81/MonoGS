@@ -76,8 +76,51 @@ class ORBExtractor:
         self.HALF_PATCH_SIZE = 15
         self.EDGE_THRESHOLD = 19
 
-    def GaussianBlur(self):
-        pass
+        self.pattern = self.generate_pattern()
+        self.keypoints = []
+        self.descriptors = []
+
+    def generate_pattern(self):
+        """Generate the ORB pattern used for descriptor sampling (placeholder)."""
+        return [(x, y) for x in range(-15, 16) for y in range(-15, 16)]  # Example pattern
+
+    def ComputePyramid(self, image):
+        self.ImagePyramid = []
+        for level in range(self.nlevels):
+            scale = self.invScaleFactor[level]
+            sz = (int(round(image.shape[1] * scale)), int(round(image.shape[0] * scale)))  # Width, Height (cols, rows)
+            whole_size = (sz[0] + EDGE_THRESHOLD * 2, sz[1] + EDGE_THRESHOLD * 2)  # Add padding (whole size)
+
+            # Create a temporary image with padding
+            temp = np.zeros((whole_size[1], whole_size[0], image.shape[2]) if len(image.shape) == 3 else (whole_size[1], whole_size[0]), dtype=image.dtype)
+
+            # Crop out the center image where there is no padding
+            current_pyramid_level = temp[EDGE_THRESHOLD:EDGE_THRESHOLD + sz[1], EDGE_THRESHOLD:EDGE_THRESHOLD + sz[0]]
+            
+            # Resize the image for this pyramid level
+            if level != 0:
+                # Resize the previous level's image to the current size
+                resized_image = cv2.resize(self.ImagePyramid[level - 1], sz, interpolation=cv2.INTER_LINEAR)
+                current_pyramid_level[:, :] = resized_image  # Copy resized image to the pyramid level
+            else:
+                # The first level is just the original image
+                current_pyramid_level[:, :] = cv2.resize(image, sz, interpolation=cv2.INTER_LINEAR)
+
+            # Apply the border to the temp image
+            if level == 0:
+                # For the first level, we add padding to the original image
+                temp_with_border = cv2.copyMakeBorder(image, EDGE_THRESHOLD, EDGE_THRESHOLD, EDGE_THRESHOLD, EDGE_THRESHOLD,
+                                                      cv2.BORDER_REFLECT_101)
+            else:
+                # For other levels, we add padding to the resized image
+                temp_with_border = cv2.copyMakeBorder(current_pyramid_level, EDGE_THRESHOLD, EDGE_THRESHOLD, EDGE_THRESHOLD, EDGE_THRESHOLD,
+                                                      cv2.BORDER_REFLECT_101 + cv2.BORDER_ISOLATED)
+            
+            # Store the padded image in the pyramid
+            self.ImagePyramid.append(current_pyramid_level)
+
+        return
+
 
     def DistributeOctTree(self, ToDistributeKeys_List, minX, maxX, minY, maxY, level):
 
@@ -165,13 +208,6 @@ class ORBExtractor:
         return ResultKeys_List
 
 
-    def ComputeOrientation(self, level):
-        for i, keypoint in enumerate(self.allKeypoints[level]):
-            keypoint.angle = self.IC_Angle(self.ImagePyramid[level], self.allKeypoints[level].pt)
-            self.allKeypoints[level][i] = keypoint
-
-        return
-
     def IC_Angle(self, image, pt)
         m_01 = 0
         m_10 = 0
@@ -204,45 +240,14 @@ class ORBExtractor:
         if angle < 0:
             angle += 360
 
-        return angle        
+        return angle   
 
 
-    def ComputePyramid(self, image):
-        self.ImagePyramid = []
-        for level in range(self.nlevels):
-            scale = self.invScaleFactor[level]
-            sz = (int(round(image.shape[1] * scale)), int(round(image.shape[0] * scale)))  # Width, Height (cols, rows)
-            whole_size = (sz[0] + EDGE_THRESHOLD * 2, sz[1] + EDGE_THRESHOLD * 2)  # Add padding (whole size)
+    def ComputeOrientation(self, level):
+        for keypoint in self.allKeypoints[level]:
+            keypoint.angle = self.IC_Angle(self.ImagePyramid[level], self.allKeypoints[level].pt)
 
-            # Create a temporary image with padding
-            temp = np.zeros((whole_size[1], whole_size[0], image.shape[2]) if len(image.shape) == 3 else (whole_size[1], whole_size[0]), dtype=image.dtype)
-
-            # Crop out the center image where there is no padding
-            current_pyramid_level = temp[EDGE_THRESHOLD:EDGE_THRESHOLD + sz[1], EDGE_THRESHOLD:EDGE_THRESHOLD + sz[0]]
-            
-            # Resize the image for this pyramid level
-            if level != 0:
-                # Resize the previous level's image to the current size
-                resized_image = cv2.resize(self.ImagePyramid[level - 1], sz, interpolation=cv2.INTER_LINEAR)
-                current_pyramid_level[:, :] = resized_image  # Copy resized image to the pyramid level
-            else:
-                # The first level is just the original image
-                current_pyramid_level[:, :] = cv2.resize(image, sz, interpolation=cv2.INTER_LINEAR)
-
-            # Apply the border to the temp image
-            if level == 0:
-                # For the first level, we add padding to the original image
-                temp_with_border = cv2.copyMakeBorder(image, EDGE_THRESHOLD, EDGE_THRESHOLD, EDGE_THRESHOLD, EDGE_THRESHOLD,
-                                                      cv2.BORDER_REFLECT_101)
-            else:
-                # For other levels, we add padding to the resized image
-                temp_with_border = cv2.copyMakeBorder(current_pyramid_level, EDGE_THRESHOLD, EDGE_THRESHOLD, EDGE_THRESHOLD, EDGE_THRESHOLD,
-                                                      cv2.BORDER_REFLECT_101 + cv2.BORDER_ISOLATED)
-            
-            # Store the padded image in the pyramid
-            self.ImagePyramid.append(current_pyramid_level)
-
-        return
+        return     
 
     def ComputeKeyPointsOctTree(self):
 
@@ -303,7 +308,7 @@ class ORBExtractor:
                         kp.pt = (kp.pt[0] + j * wCell, kp.pt[1] + i * hCell)
                         ToDistributeKeys_List.append(kp)
 
-            #Distribute keypoints across the image using an octree
+            # Distribute keypoints across the image using an octree
             keypoints_list = self.DistributeOctTree(ToDistributeKeys_List, minBorderX, maxBorderX, minBorderY, maxBorderY, level)
             
             # Set keypoint size and scale
@@ -316,22 +321,89 @@ class ORBExtractor:
             # Store keypoints for this level
             self.allKeypoints.append(keypoints_list)
 
-        # TO DO: Compute keypoint orientations for each level
+        # Compute keypoint orientations for each level
         for level in range(self.nlevels):
             self.ComputeOrientation(level)
 
         return
 
-    def ComputeDescriptors(self):
-        pass
+    def ComputeDescriptors(self, image, keypoints):
 
+        # Initialize descriptors as a zero matrix of shape (number of keypoints, 32 bytes per descriptor)
+        descriptors = np.zeros((len(keypoints), 32), dtype=np.uint8)
+
+        # Loop through each keypoint and compute its descriptor
+        for i, keypoint in enumerate(keypoints):
+            compute_orb_descriptor(keypoint, image, descriptors[i])
+
+        return descriptors
+
+
+    def compute_orb_descriptor(keypoint, image, descriptor):
+        # Get the keypoint's coordinates
+        angle = keypoint.angle * np.pi / 180.0  # Convert angle to radians
+        cos_angle = np.cos(angle)
+        sin_angle = np.sin(angle)
+
+        # Precompute the rotation matrix elements for the keypoint
+        center_x = int(round(keypoint.pt[0]))
+        center_y = int(round(keypoint.pt[1]))
+
+        # Descriptor is 32 bytes (256 bits)
+        for k in range(32):
+            val = 0
+            for j in range(8):  # Each byte consists of 8 comparisons
+                idx = 8 * k + j
+                p1_x = int(center_x + cos_angle * self.pattern[idx][0] - sin_angle * self.pattern[idx][1])
+                p1_y = int(center_y + sin_angle * self.pattern[idx][0] + cos_angle * self.pattern[idx][1])
+                p2_x = int(center_x + cos_angle * self.pattern[idx + 1][0] - sin_angle * self.pattern[idx + 1][1])
+                p2_y = int(center_y + sin_angle * self.pattern[idx + 1][0] + cos_angle * self.pattern[idx + 1][1])
+
+                # Ensure the points are within image bounds
+                if (0 <= p1_x < image.shape[1] and 0 <= p1_y < image.shape[0] and
+                        0 <= p2_x < image.shape[1] and 0 <= p2_y < image.shape[0]):
+                    if image[p1_y, p1_x] < image[p2_y, p2_x]:
+                        val |= 1 << j
+
+            descriptor[k] = val
+
+        return
 
     def ORBExtract(self, image):
 
+        # Compute Image Pyramid
         self.ComputePyramid(image)
 
+        # Find Keypoints
         self.ComputeKeyPointsOctTree()
 
-        self.GaussianBlur()
 
-        self.ComputeDescriptors()
+        # Initialize descriptors
+        nkeypoints = sum(len(kp) for kp in self.allKeypoints)
+        if nkeypoints == 0:
+            return 0
+
+        self.descriptors = np.zeros((nkeypoints, 32), dtype=np.uint8)
+        self.keypoints = [cv2.KeyPoint() for _ in range(nkeypoints)]
+
+        # Loop through pyramid levels
+        for level, keypoints_level in enumerate(self.allKeypoints):
+            nkeypoints_level = len(keypoints_level)
+            if nkeypoints_level == 0:
+                continue
+
+            # Preprocess image for this pyramid level
+            workingMat = cv2.GaussianBlur(self.ImagePyramid[level], (7, 7), 2, borderType=cv2.BORDER_REFLECT_101)
+
+            # Compute descriptors for the current level
+            desc = self.ComputeDescriptors(workingMat, keypoints_level)
+
+            # Scale keypoints and add them to the keypoint list
+            scale = self.mvScaleFactor[level]
+            for i, keypoint in enumerate(keypoints_level):
+                if level != 0:
+                    keypoint.pt = (keypoint.pt[0] * scale, keypoint.pt[1] * scale)
+
+                self.keypoints[i] = keypoint
+                self.descriptors[i] = desc[i]
+        return
