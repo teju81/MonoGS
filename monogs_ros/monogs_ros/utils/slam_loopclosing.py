@@ -20,9 +20,9 @@ class LoopClosing:
 		self.mKFDB.AddKF2DB(self.mQueryKF)
 
 
-    def f2b_listener_callback(self, b2lc_msg):
-        self.get_logger().info('I heard from backend: "%s"' % b2lc_msg.msg)
-        _ = self.convert_from_ros_msg(b2lc_msg)
+	def f2b_listener_callback(self, b2lc_msg):
+		self.get_logger().info('I heard from backend: "%s"' % b2lc_msg.msg)
+		_ = self.convert_from_ros_msg(b2lc_msg)
 
 		self.DetectLoopClosure()
 		if self.mbLoopClosureDetected:

@@ -1,3 +1,6 @@
+import cv2
+import numpy as np
+import math
 
 class ExtractorNode:
     def __init__(self):
@@ -56,15 +59,15 @@ class ExtractorNode:
 
 class ORBExtractor:
     def __init__(self):
-        self.iniThFAST = None
-        self.minThFAST = None
+        self.iniThFAST = 20
+        self.minThFAST = 7
 
-        self.nlevels = None
-        self.nfeatures = None
-        self.features_per_level = None
+        self.nlevels = 8
+        self.nfeatures = 1000
+        self.features_per_level = [0]*self.nlevels
         self.umax_list = []
 
-        self.scaleFactor = None
+        self.scaleFactor = 1.2
         self.scaleFactor_list = []
         self.invScaleFactor_list = []
         self.levelSigma2_list = []
@@ -76,26 +79,77 @@ class ORBExtractor:
         self.HALF_PATCH_SIZE = 15
         self.EDGE_THRESHOLD = 19
 
-        self.pattern = self.generate_pattern()
+        self.pattern = None
         self.keypoints = []
         self.descriptors = []
+        self.init_params()
+
+    def init_params(self):
+        #self.generate_pattern()
+        self.scaleFactor_list = [1.0]*self.nlevels
+        self.scaleFactor_list[1:] = [self.scaleFactor_list[i-1]*self.scaleFactor for i in range(1,self.nlevels)]
+        self.levelSigma2_list = [self.scaleFactor_list[i]**2 for i in range(self.nlevels)]
+        self.invScaleFactor_list = [1/self.scaleFactor_list[i] for i in range(self.nlevels)]
+        self.invLevelSigma2_list = [1/self.levelSigma2_list[i] for i in range(self.nlevels)]
+
+        factor = 1.0 / self.scaleFactor
+        desired_features_per_scale = self.nfeatures*(1-factor)/(1-factor**self.nlevels)
+
+
+        sum_features = 0.0
+        for level in range(self.nlevels-1):
+            self.features_per_level[level] = round(desired_features_per_scale)
+            sum_features += self.features_per_level[level]
+            desired_features_per_scale *= factor
+
+        self.features_per_level[-1] = max(self.nfeatures - sum_features, 0)
+
+        npoints = 512
+        bit_pattern_31_ = self.get_bit_pattern()
+        pattern0 = np.reshape(bit_pattern_31_, (-1,2))
+        self.pattern = []
+        self.pattern.extend(pattern0[:npoints])
+
+        self.HALF_PATCH_SIZE = 15  # Assuming some value; replace with actual size
+        self.umax_list = [0] * (self.HALF_PATCH_SIZE + 1)  # Equivalent to umax.resize
+
+        # Precompute the end of a row in a circular patch
+        vmax = math.floor(self.HALF_PATCH_SIZE * math.sqrt(2.0) / 2 + 1)
+        vmin = math.ceil(self.HALF_PATCH_SIZE * math.sqrt(2.0) / 2)
+        hp2 = self.HALF_PATCH_SIZE**2
+
+        for v in range(vmax + 1):
+            self.umax_list[v] = round(math.sqrt(hp2 - v * v))
+
+        # Ensure symmetry
+        v0 = 0
+        for v in range(self.HALF_PATCH_SIZE, vmin - 1, -1):
+            while self.umax_list[v0] == self.umax_list[v0 + 1]:
+                v0 += 1
+            self.umax_list[v] = v0
+            v0 += 1
+
+        return
 
     def generate_pattern(self):
         """Generate the ORB pattern used for descriptor sampling (placeholder)."""
         return [(x, y) for x in range(-15, 16) for y in range(-15, 16)]  # Example pattern
 
     def ComputePyramid(self, image):
+        image_np = image.permute(1,2,0).cpu().numpy()
+        image_np = (image_np*255).astype(np.uint8)
+        image_np = cv2.cvtColor(image_np, cv2.COLOR_BGR2GRAY)
         self.ImagePyramid = []
         for level in range(self.nlevels):
-            scale = self.invScaleFactor[level]
-            sz = (int(round(image.shape[1] * scale)), int(round(image.shape[0] * scale)))  # Width, Height (cols, rows)
-            whole_size = (sz[0] + EDGE_THRESHOLD * 2, sz[1] + EDGE_THRESHOLD * 2)  # Add padding (whole size)
+            scale = self.invScaleFactor_list[level]
+            sz = (int(round(image_np.shape[1] * scale)), int(round(image_np.shape[0] * scale)))  # Width, Height (cols, rows)
+            whole_size = (sz[0] + self.EDGE_THRESHOLD * 2, sz[1] + self.EDGE_THRESHOLD * 2)  # Add padding (whole size)
 
             # Create a temporary image with padding
-            temp = np.zeros((whole_size[1], whole_size[0], image.shape[2]) if len(image.shape) == 3 else (whole_size[1], whole_size[0]), dtype=image.dtype)
+            temp = np.zeros((whole_size[1], whole_size[0]), dtype=image_np.dtype)
 
             # Crop out the center image where there is no padding
-            current_pyramid_level = temp[EDGE_THRESHOLD:EDGE_THRESHOLD + sz[1], EDGE_THRESHOLD:EDGE_THRESHOLD + sz[0]]
+            current_pyramid_level = temp[self.EDGE_THRESHOLD:self.EDGE_THRESHOLD + sz[1], self.EDGE_THRESHOLD:self.EDGE_THRESHOLD + sz[0]]
             
             # Resize the image for this pyramid level
             if level != 0:
@@ -104,16 +158,16 @@ class ORBExtractor:
                 current_pyramid_level[:, :] = resized_image  # Copy resized image to the pyramid level
             else:
                 # The first level is just the original image
-                current_pyramid_level[:, :] = cv2.resize(image, sz, interpolation=cv2.INTER_LINEAR)
+                current_pyramid_level[:, :] = cv2.resize(image_np, sz, interpolation=cv2.INTER_LINEAR)
 
             # Apply the border to the temp image
             if level == 0:
                 # For the first level, we add padding to the original image
-                temp_with_border = cv2.copyMakeBorder(image, EDGE_THRESHOLD, EDGE_THRESHOLD, EDGE_THRESHOLD, EDGE_THRESHOLD,
+                temp_with_border = cv2.copyMakeBorder(image_np, self.EDGE_THRESHOLD, self.EDGE_THRESHOLD, self.EDGE_THRESHOLD, self.EDGE_THRESHOLD,
                                                       cv2.BORDER_REFLECT_101)
             else:
                 # For other levels, we add padding to the resized image
-                temp_with_border = cv2.copyMakeBorder(current_pyramid_level, EDGE_THRESHOLD, EDGE_THRESHOLD, EDGE_THRESHOLD, EDGE_THRESHOLD,
+                temp_with_border = cv2.copyMakeBorder(current_pyramid_level, self.EDGE_THRESHOLD, self.EDGE_THRESHOLD, self.EDGE_THRESHOLD, self.EDGE_THRESHOLD,
                                                       cv2.BORDER_REFLECT_101 + cv2.BORDER_ISOLATED)
             
             # Store the padded image in the pyramid
@@ -208,7 +262,7 @@ class ORBExtractor:
         return ResultKeys_List
 
 
-    def IC_Angle(self, image, pt)
+    def IC_Angle(self, image, pt):
         m_01 = 0
         m_10 = 0
 
@@ -245,9 +299,9 @@ class ORBExtractor:
 
     def ComputeOrientation(self, level):
         for keypoint in self.allKeypoints[level]:
-            keypoint.angle = self.IC_Angle(self.ImagePyramid[level], self.allKeypoints[level].pt)
+            keypoint.angle = self.IC_Angle(self.ImagePyramid[level], keypoint.pt)
 
-        return     
+        return
 
     def ComputeKeyPointsOctTree(self):
 
@@ -334,12 +388,12 @@ class ORBExtractor:
 
         # Loop through each keypoint and compute its descriptor
         for i, keypoint in enumerate(keypoints):
-            compute_orb_descriptor(keypoint, image, descriptors[i])
+            self.compute_orb_descriptor(keypoint, image, descriptors[i])
 
         return descriptors
 
 
-    def compute_orb_descriptor(keypoint, image, descriptor):
+    def compute_orb_descriptor(self, keypoint, image, descriptor):
         # Get the keypoint's coordinates
         angle = keypoint.angle * np.pi / 180.0  # Convert angle to radians
         cos_angle = np.cos(angle)
@@ -383,8 +437,8 @@ class ORBExtractor:
         if nkeypoints == 0:
             return 0
 
-        self.descriptors = np.zeros((nkeypoints, 32), dtype=np.uint8)
-        self.keypoints = [cv2.KeyPoint() for _ in range(nkeypoints)]
+        descriptors = np.zeros((nkeypoints, 32), dtype=np.uint8)
+        keypoints = [cv2.KeyPoint() for _ in range(nkeypoints)]
 
         # Loop through pyramid levels
         for level, keypoints_level in enumerate(self.allKeypoints):
@@ -399,11 +453,274 @@ class ORBExtractor:
             desc = self.ComputeDescriptors(workingMat, keypoints_level)
 
             # Scale keypoints and add them to the keypoint list
-            scale = self.mvScaleFactor[level]
+            scale = self.scaleFactor_list[level]
             for i, keypoint in enumerate(keypoints_level):
                 if level != 0:
                     keypoint.pt = (keypoint.pt[0] * scale, keypoint.pt[1] * scale)
 
-                self.keypoints[i] = keypoint
-                self.descriptors[i] = desc[i]
-        return
+                keypoints[i] = keypoint
+                descriptors[i] = desc[i]
+        return keypoints, descriptors
+
+
+    def get_bit_pattern(self):
+        bit_pattern_31_ = np.array([
+            8,-3, 9,5,
+            4,2, 7,-12,
+            -11,9, -8,2,
+            7,-12, 12,-13,
+            2,-13, 2,12,
+            1,-7, 1,6,
+            -2,-10, -2,-4,
+            -13,-13, -11,-8,
+            -13,-3, -12,-9,
+            10,4, 11,9,
+            -13,-8, -8,-9,
+            -11,7, -9,12,
+            7,7, 12,6,
+            -4,-5, -3,0,
+            -13,2, -12,-3,
+            -9,0, -7,5,
+            12,-6, 12,-1,
+            -3,6, -2,12,
+            -6,-13, -4,-8,
+            11,-13, 12,-8,
+            4,7, 5,1,
+            5,-3, 10,-3,
+            3,-7, 6,12,
+            -8,-7, -6,-2,
+            -2,11, -1,-10,
+            -13,12, -8,10,
+            -7,3, -5,-3,
+            -4,2, -3,7,
+            -10,-12, -6,11,
+            5,-12, 6,-7,
+            5,-6, 7,-1,
+            1,0, 4,-5,
+            9,11, 11,-13,
+            4,7, 4,12,
+            2,-1, 4,4,
+            -4,-12, -2,7,
+            -8,-5, -7,-10,
+            4,11, 9,12,
+            0,-8, 1,-13,
+            -13,-2, -8,2,
+            -3,-2, -2,3,
+            -6,9, -4,-9,
+            8,12, 10,7,
+            0,9, 1,3,
+            7,-5, 11,-10,
+            -13,-6, -11,0,
+            10,7, 12,1,
+            -6,-3, -6,12,
+            10,-9, 12,-4,
+            -13,8, -8,-12,
+            -13,0, -8,-4,
+            3,3, 7,8,
+            5,7, 10,-7,
+            -1,7, 1,-12,
+            3,-10, 5,6,
+            2,-4, 3,-10,
+            -13,0, -13,5,
+            -13,-7, -12,12,
+            -13,3, -11,8,
+            -7,12, -4,7,
+            6,-10, 12,8,
+            -9,-1, -7,-6,
+            -2,-5, 0,12,
+            -12,5, -7,5,
+            3,-10, 8,-13,
+            -7,-7, -4,5,
+            -3,-2, -1,-7,
+            2,9, 5,-11,
+            -11,-13, -5,-13,
+            -1,6, 0,-1,
+            5,-3, 5,2,
+            -4,-13, -4,12,
+            -9,-6, -9,6,
+            -12,-10, -8,-4,
+            10,2, 12,-3,
+            7,12, 12,12,
+            -7,-13, -6,5,
+            -4,9, -3,4,
+            7,-1, 12,2,
+            -7,6, -5,1,
+            -13,11, -12,5,
+            -3,7, -2,-6,
+            7,-8, 12,-7,
+            -13,-7, -11,-12,
+            1,-3, 12,12,
+            2,-6, 3,0,
+            -4,3, -2,-13,
+            -1,-13, 1,9,
+            7,1, 8,-6,
+            1,-1, 3,12,
+            9,1, 12,6,
+            -1,-9, -1,3,
+            -13,-13, -10,5,
+            7,7, 10,12,
+            12,-5, 12,9,
+            6,3, 7,11,
+            5,-13, 6,10,
+            2,-12, 2,3,
+            3,8, 4,-6,
+            2,6, 12,-13,
+            9,-12, 10,3,
+            -8,4, -7,9,
+            -11,12, -4,-6,
+            1,12, 2,-8,
+            6,-9, 7,-4,
+            2,3, 3,-2,
+            6,3, 11,0,
+            3,-3, 8,-8,
+            7,8, 9,3,
+            -11,-5, -6,-4,
+            -10,11, -5,10,
+            -5,-8, -3,12,
+            -10,5, -9,0,
+            8,-1, 12,-6,
+            4,-6, 6,-11,
+            -10,12, -8,7,
+            4,-2, 6,7,
+            -2,0, -2,12,
+            -5,-8, -5,2,
+            7,-6, 10,12,
+            -9,-13, -8,-8,
+            -5,-13, -5,-2,
+            8,-8, 9,-13,
+            -9,-11, -9,0,
+            1,-8, 1,-2,
+            7,-4, 9,1,
+            -2,1, -1,-4,
+            11,-6, 12,-11,
+            -12,-9, -6,4,
+            3,7, 7,12,
+            5,5, 10,8,
+            0,-4, 2,8,
+            -9,12, -5,-13,
+            0,7, 2,12,
+            -1,2, 1,7,
+            5,11, 7,-9,
+            3,5, 6,-8,
+            -13,-4, -8,9,
+            -5,9, -3,-3,
+            -4,-7, -3,-12,
+            6,5, 8,0,
+            -7,6, -6,12,
+            -13,6, -5,-2,
+            1,-10, 3,10,
+            4,1, 8,-4,
+            -2,-2, 2,-13,
+            2,-12, 12,12,
+            -2,-13, 0,-6,
+            4,1, 9,3,
+            -6,-10, -3,-5,
+            -3,-13, -1,1,
+            7,5, 12,-11,
+            4,-2, 5,-7,
+            -13,9, -9,-5,
+            7,1, 8,6,
+            7,-8, 7,6,
+            -7,-4, -7,1,
+            -8,11, -7,-8,
+            -13,6, -12,-8,
+            2,4, 3,9,
+            10,-5, 12,3,
+            -6,-5, -6,7,
+            8,-3, 9,-8,
+            2,-12, 2,8,
+            -11,-2, -10,3,
+            -12,-13, -7,-9,
+            -11,0, -10,-5,
+            5,-3, 11,8,
+            -2,-13, -1,12,
+            -1,-8, 0,9,
+            -13,-11, -12,-5,
+            -10,-2, -10,11,
+            -3,9, -2,-13,
+            2,-3, 3,2,
+            -9,-13, -4,0,
+            -4,6, -3,-10,
+            -4,12, -2,-7,
+            -6,-11, -4,9,
+            6,-3, 6,11,
+            -13,11, -5,5,
+            11,11, 12,6,
+            7,-5, 12,-2,
+            -1,12, 0,7,
+            -4,-8, -3,-2,
+            -7,1, -6,7,
+            -13,-12, -8,-13,
+            -7,-2, -6,-8,
+            -8,5, -6,-9,
+            -5,-1, -4,5,
+            -13,7, -8,10,
+            1,5, 5,-13,
+            1,0, 10,-13,
+            9,12, 10,-1,
+            5,-8, 10,-9,
+            -1,11, 1,-13,
+            -9,-3, -6,2,
+            -1,-10, 1,12,
+            -13,1, -8,-10,
+            8,-11, 10,-6,
+            2,-13, 3,-6,
+            7,-13, 12,-9,
+            -10,-10, -5,-7,
+            -10,-8, -8,-13,
+            4,-6, 8,5,
+            3,12, 8,-13,
+            -4,2, -3,-3,
+            5,-13, 10,-12,
+            4,-13, 5,-1,
+            -9,9, -4,3,
+            0,3, 3,-9,
+            -12,1, -6,1,
+            3,2, 4,-8,
+            -10,-10, -10,9,
+            8,-13, 12,12,
+            -8,-12, -6,-5,
+            2,2, 3,7,
+            10,6, 11,-8,
+            6,8, 8,-12,
+            -7,10, -6,5,
+            -3,-9, -3,9,
+            -1,-13, -1,5,
+            -3,-7, -3,4,
+            -8,-2, -8,3,
+            4,2, 12,12,
+            2,-5, 3,11,
+            6,-9, 11,-13,
+            3,-1, 7,12,
+            11,-1, 12,4,
+            -3,0, -3,6,
+            4,-11, 4,12,
+            2,-4, 2,1,
+            -10,-6, -8,1,
+            -13,7, -11,1,
+            -13,12, -11,-13,
+            6,0, 11,-13,
+            0,-1, 1,4,
+            -13,3, -9,-2,
+            -9,8, -6,-3,
+            -13,-6, -8,-2,
+            5,-9, 8,10,
+            2,7, 3,-9,
+            -1,-6, -1,-1,
+            9,5, 11,-2,
+            11,-3, 12,-8,
+            3,0, 3,5,
+            -1,4, 0,10,
+            3,-6, 4,5,
+            -13,0, -10,5,
+            5,8, 12,11,
+            8,9, 9,-6,
+            7,-4, 8,-12,
+            -10,4, -10,9,
+            7,3, 12,4,
+            9,-7, 10,-2,
+            7,0, 12,-2,
+            -1,-6, 0,-11
+        ], dtype=np.int32)
+
+        return bit_pattern_31_

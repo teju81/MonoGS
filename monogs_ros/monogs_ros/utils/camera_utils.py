@@ -3,6 +3,7 @@ from torch import nn
 
 from monogs_ros.gaussian_splatting.utils.graphics_utils import getProjectionMatrix2, getWorld2View2
 from monogs_ros.utils.slam_utils import image_gradient, image_gradient_mask
+from monogs_ros.utils.orb_extractor import ORBExtractor
 
 
 class Camera(nn.Module):
@@ -48,6 +49,9 @@ class Camera(nn.Module):
         self.image_width = image_width
 
         # Place Recognition Related Variables
+        self.orb_extractor = ORBExtractor()
+        self.keypoints = []
+        self.descriptors = []
         self.BowList = []
         self.PlaceRecognitionQueryUID = None
         self.PlaceRecognitionWords = 0
@@ -73,6 +77,7 @@ class Camera(nn.Module):
     @staticmethod
     def init_from_dataset(dataset, idx, projection_matrix):
         gt_color, gt_depth, gt_pose = dataset[idx]
+
         return Camera(
             idx,
             gt_color,
@@ -173,3 +178,7 @@ class Camera(nn.Module):
         # From the sorted covisibility key frame list return a set of the first numNeighbours Key Frames
 
         pass
+
+    def ORBExtract(self):
+        
+        self.keypoints, self.descriptors = self.orb_extractor.ORBExtract(self.original_image)

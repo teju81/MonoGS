@@ -10,7 +10,7 @@ from utils.config_utils import load_config
 from gaussian_splatting.utils.graphics_utils import getProjectionMatrix2, getWorld2View2
 import pydbow3 as bow
 import cv2
-
+from monogs_ros.utils.orb_extractor import ORBExtractor
 
 
 def load_image_descriptors(dataset):
@@ -184,12 +184,36 @@ def main():
     model_params = munchify(config["model_params"])
     dataset = load_dataset(model_params, model_params.source_path, config=config)
     idx = 3
-    gt_color, gt_depth, gt_pose = dataset[idx]
+    projection_matrix = getProjectionMatrix2(
+        znear=0.01,
+        zfar=100.0,
+        fx=dataset.fx,
+        fy=dataset.fy,
+        cx=dataset.cx,
+        cy=dataset.cy,
+        W=dataset.width,
+        H=dataset.height,
+    ).transpose(0, 1)
+    projection_matrix = projection_matrix.to(device="cuda:0")
+    viewpoint = Camera.init_from_dataset(dataset, idx, projection_matrix)
+    viewpoint.ORBExtract()
+    print(len(viewpoint.keypoints))
+    print(viewpoint.descriptors.shape)
+
+    image_np = viewpoint.original_image.permute(1,2,0).cpu().numpy()
+    image_np = (image_np*255).astype(np.uint8)
+    img_gray = cv2.cvtColor(image_np, cv2.COLOR_BGR2GRAY)
+
+    image_with_keypoints = cv2.drawKeypoints(img_gray, viewpoint.keypoints, None, color=(0, 255, 0), flags=cv2.DrawMatchesFlags_DEFAULT)
+
+    cv2.imshow('Keypoints', image_with_keypoints)
+
+    cv2.waitKey(0)
+    cv2.destroyAllWindows()
 
     #test_vocab_creation(dataset)
 
-    place_recognition_test(dataset)
-
+    #place_recognition_test(dataset)
 
 
 
