@@ -521,6 +521,14 @@ class FrontEnd(Node):
         viewpoint_msg.exposure_b = viewpoint.exposure_b.item()
         viewpoint_msg.projection_matrix = convert_tensor_to_ros_message(viewpoint.projection_matrix)
 
+        #viewpoint_msg.keypoints = viewpoint.keypoints
+        viewpoint_msg.descriptors = convert_numpy_array_to_ros_message(viewpoint.descriptors)
+        # viewpoint_msg.BowList = viewpoint.BowList
+        # viewpoint_msg.PlaceRecognitionQueryUID = viewpoint.PlaceRecognitionQueryUID
+        # viewpoint_msg.PlaceRecognitionWords = viewpoint.PlaceRecognitionWords
+        # viewpoint_msg.PlaceRecognitionScore = viewpoint.PlaceRecognitionScore
+        viewpoint_msg.sim_score = viewpoint.sim_score
+
         return viewpoint_msg
 
     def g2f_listener_callback(self, g2f_msg):

@@ -50,8 +50,8 @@ class Camera(nn.Module):
 
         # Place Recognition Related Variables
         self.orb_extractor = ORBExtractor()
-        self.keypoints = []
-        self.descriptors = []
+        self.keypoints = None
+        self.descriptors = None
         self.BowList = []
         self.PlaceRecognitionQueryUID = None
         self.PlaceRecognitionWords = 0

@@ -64,9 +64,10 @@ class BackEnd(Node):
         self.keyframe_optimizers = None
 
         self.vocab = bow.Vocabulary()
-        self.vocab.load("orbvoc.dbow3")
+        self.vocab.load("/root/code/monogs_ros_ws/src/monogs_ros/monogs_ros/utils/orbvoc.dbow3")
 
         # We need this for each map (happens to be equal to num tum cameras initially)
+        self.kfid_list = [[] for i in range(self.num_tum_cameras)]
         self.GKF_dict = [{} for i in range(self.num_tum_cameras)]
         self.KFG_dict = [{} for i in range(self.num_tum_cameras)]
         self.Connected_KFs_dict = [{} for i in range(self.num_tum_cameras)]
@@ -242,6 +243,14 @@ class BackEnd(Node):
         viewpoint.image_height = cam_msg.image_height
         viewpoint.device = cam_msg.device
 
+        #viewpoint.keypoints = cam_msg.keypoints
+        viewpoint.descriptors = convert_ros_multi_array_message_to_numpy(cam_msg.descriptors)
+        # viewpoint.BowList = cam_msg.BowList
+        # viewpoint.PlaceRecognitionQueryUID = cam_msg.PlaceRecognitionQueryUID
+        # viewpoint.PlaceRecognitionWords = cam_msg.PlaceRecognitionWords
+        # viewpoint.PlaceRecognitionScore = cam_msg.PlaceRecognitionScore
+        viewpoint.sim_score = cam_msg.sim_score
+
         return viewpoint
 
 
@@ -347,6 +356,8 @@ class BackEnd(Node):
             viewpoint, kf_id=frame_idx, init=init, scale=scale, depthmap=depth_map
         )
 
+        self.kfid_list[frontend_id].append(frame_idx)
+
         self.ComputeBoW(viewpoint)
 
     def reset(self):
@@ -420,16 +431,7 @@ class BackEnd(Node):
         self.occ_aware_visibility[frontend_id][cur_frame_idx] = (n_touched > 0).long()
 
 
-        gid_list = torch.nonzero(self.occ_aware_visibility[frontend_id][cur_frame_idx], as_tuple=True)[0]
-        self.KFG_dict[frontend_id][cur_frame_idx] = gid_list
-
-        for gid in self.gid_list:
-            if gid not in list(GKF_dict.keys()):
-                GKF_dict[frontend_id][gid] = set()
-            GKF_dict[frontend_id][gid].update(cur_frame_idx)
-
-        self.Connected_KFs_dict[frontend_id] = set()
-        self.Connected_KFs_dict[frontend_id].update(cur_frame_idx)
+        self.update_covisibility(frontend_id)
 
         Log("Initialized map")
         return render_pkg
@@ -651,16 +653,37 @@ class BackEnd(Node):
 
         # Find the covisibility graph here
         # Sort the connected keyframes based on degree/weight of connection (degree calculated in Gaussian rendering forward function)
-        gid_list = torch.nonzero(self.occ_aware_visibility[frontend_id][cur_frame_idx], as_tuple=True)[0]
-        self.KFG_dict[frontend_id][cur_frame_idx] = gid_list
 
-        for gid in self.gid_list:
-            if gid not in list(GKF_dict.keys()):
-                GKF_dict[frontend_id][gid] = set()
-            GKF_dict[frontend_id][gid].update(cur_frame_idx)
+        # Gaussians change everytime the mapping optimization is done - KF addition and sync
+        # Update covisibility whenever Gaussians change
 
-        self.Connected_KFs_dict[frontend_id].update(cur_frame_idx)
+        # For every Key frame we need to pass it through the render function (to find the visible Gaussians)
+        # Call the render function here
+        with torch.no_grad():
+            for kfid in self.kfid_list[frontend_id]:
+                render_pkg = render(self.viewpoints[frontend_id][kfid], self.gaussians[frontend_id], self.pipeline_params, self.background)
+                n_touched = render_pkg["n_touched"]
+                self.occ_aware_visibility[frontend_id][kfid] = (n_touched > 0).long()
 
+                gid_list = torch.nonzero(self.occ_aware_visibility[frontend_id][kfid], as_tuple=True)[0]
+                self.KFG_dict[frontend_id][kfid] = gid_list
+
+                for gid in gid_list:
+                    if gid not in list(self.GKF_dict[frontend_id].keys()):
+                        self.GKF_dict[frontend_id][gid] = set()
+                    self.GKF_dict[frontend_id][gid].add(kfid)
+
+        return
+
+    def get_connected_key_frames(self, frontend_id, query_kfid):
+
+        self.KFG_dict[frontend_id][query_kfid] = gid_list
+        for gid in gid_list:
+            for kfid in self.GKF_dict[frontend_id][gid]:
+                if kfid not in list(self.Connected_KFs_dict[frontend_id].keys()):
+                    self.Connected_KFs_dict[frontend_id][kfid] = 0
+                else:
+                    self.Connected_KFs_dict[frontend_id][kfid] += 1
 
         return
 

@@ -437,7 +437,7 @@ class ORBExtractor:
         if nkeypoints == 0:
             return 0
 
-        descriptors = np.zeros((nkeypoints, 32), dtype=np.uint8)
+        descriptors = np.zeros((nkeypoints, 32), dtype=np.int32)
         keypoints = [cv2.KeyPoint() for _ in range(nkeypoints)]
 
         # Loop through pyramid levels
