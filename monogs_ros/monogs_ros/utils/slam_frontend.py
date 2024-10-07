@@ -568,6 +568,8 @@ class FrontEnd(Node):
         viewpoint = Camera.init_from_dataset(
             self.dataset, self.cur_frame_idx, projection_matrix
         )
+        viewpoint.ORBExtract()
+
         viewpoint.compute_grad_mask(self.config)
 
         self.cameras[self.cur_frame_idx] = viewpoint

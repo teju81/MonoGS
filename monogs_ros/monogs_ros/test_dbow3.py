@@ -12,7 +12,6 @@ import pydbow3 as bow
 import cv2
 from monogs_ros.utils.orb_extractor import ORBExtractor
 
-
 def load_image_descriptors(dataset):
     descriptor_list = []
     print("Processing images in dataset....")
@@ -210,6 +209,15 @@ def main():
 
     cv2.waitKey(0)
     cv2.destroyAllWindows()
+
+    # Compute BOW Vector
+    vocab = bow.Vocabulary()
+    vocab.load("orbvoc.dbow3")
+
+    descriptors_list = [viewpoint.descriptors[i].reshape(1,-1) for i in range(viewpoint.descriptors.shape[0])]
+    
+    # Compute BoW and Feature vectors
+    dbow3_vec_dict = vocab.transform(descriptors_list)
 
     #test_vocab_creation(dataset)
 

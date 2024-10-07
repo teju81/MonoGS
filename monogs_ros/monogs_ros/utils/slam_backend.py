@@ -35,6 +35,7 @@ from monogs_ros.utils.logging_utils import Log
 from monogs_ros.utils.multiprocessing_utils import clone_obj
 from monogs_ros.utils.pose_utils import update_pose
 from monogs_ros.utils.slam_utils import get_loss_mapping
+import pydbow3 as bow
 
 class BackEnd(Node):
     def __init__(self, config):
@@ -62,6 +63,15 @@ class BackEnd(Node):
         self.initialized = not self.monocular
         self.keyframe_optimizers = None
 
+        self.vocab = bow.Vocabulary()
+        self.vocab.load("orbvoc.dbow3")
+
+        # We need this for each map (happens to be equal to num tum cameras initially)
+        self.GKF_dict = [{} for i in range(self.num_tum_cameras)]
+        self.KFG_dict = [{} for i in range(self.num_tum_cameras)]
+        self.Connected_KFs_dict = [{} for i in range(self.num_tum_cameras)]
+
+
         self.queue_size_ = 100
         self.msg_counter = 0
         self.b2f_publisher = self.create_publisher(B2F, '/Back2Front', self.queue_size_)
@@ -85,17 +95,17 @@ class BackEnd(Node):
             self.pause = False
         elif f2b_msg.msg == "init":
             Log("", tag_msg="Resetting the system", tag="BackEnd")
-            self.viewpoints[frontend_id][cur_frame_idx] = viewpoint
             self.add_next_kf(
                 frontend_id, cur_frame_idx, viewpoint, depth_map=depth_map, init=True
             )
+            self.viewpoints[frontend_id][cur_frame_idx] = viewpoint
             self.initialize_map(cur_frame_idx, viewpoint, frontend_id)
             self.push_to_frontend("init", frontend_id)
 
         elif f2b_msg.msg == "keyframe":
-            self.viewpoints[frontend_id][cur_frame_idx] = viewpoint
             self.current_windows[frontend_id] = current_window
             self.add_next_kf(frontend_id, cur_frame_idx, viewpoint, depth_map=depth_map)
+            self.viewpoints[frontend_id][cur_frame_idx] = viewpoint
 
             opt_params = []
             frames_to_optimize = self.config["Training"]["pose_window"]
@@ -324,7 +334,13 @@ class BackEnd(Node):
         )
 
     def ComputeBoW(self, viewpoint):
-        pass
+
+        # Compute BOW Vector
+
+        descriptors_list = [viewpoint.descriptors[i].reshape(1,-1) for i in range(viewpoint.descriptors.shape[0])]
+        
+        # Compute BoW and Feature vectors
+        viewpoint.dbow3_vec_dict = self.vocab.transform(descriptors_list)
 
     def add_next_kf(self, frontend_id, frame_idx, viewpoint, init=False, scale=2.0, depth_map=None):
         self.gaussians[frontend_id].extend_from_pcd_seq(
@@ -402,6 +418,19 @@ class BackEnd(Node):
                 self.gaussians[frontend_id].optimizer.zero_grad(set_to_none=True)
 
         self.occ_aware_visibility[frontend_id][cur_frame_idx] = (n_touched > 0).long()
+
+
+        gid_list = torch.nonzero(self.occ_aware_visibility[frontend_id][cur_frame_idx], as_tuple=True)[0]
+        self.KFG_dict[frontend_id][cur_frame_idx] = gid_list
+
+        for gid in self.gid_list:
+            if gid not in list(GKF_dict.keys()):
+                GKF_dict[frontend_id][gid] = set()
+            GKF_dict[frontend_id][gid].update(cur_frame_idx)
+
+        self.Connected_KFs_dict[frontend_id] = set()
+        self.Connected_KFs_dict[frontend_id].update(cur_frame_idx)
+
         Log("Initialized map")
         return render_pkg
 
@@ -610,17 +639,31 @@ class BackEnd(Node):
         if self.last_sent[frontend_id] >= 10:
             self.map(self.current_windows, frontend_id, prune=True, iters=10)
 
-        self.update_covisibility()
+        self.update_covisibility(frontend_id)
 
     def keyframe_map_update(self, frontend_id, iter_per_kf):
         self.map(self.current_windows, frontend_id, iters=iter_per_kf)
         self.map(self.current_windows, frontend_id, prune=True)
 
-        self.update_covisibility()
+        self.update_covisibility(frontend_id)
 
-    def update_covisibility(self):
+    def update_covisibility(self, frontend_id):
 
-        pass
+        # Find the covisibility graph here
+        # Sort the connected keyframes based on degree/weight of connection (degree calculated in Gaussian rendering forward function)
+        gid_list = torch.nonzero(self.occ_aware_visibility[frontend_id][cur_frame_idx], as_tuple=True)[0]
+        self.KFG_dict[frontend_id][cur_frame_idx] = gid_list
+
+        for gid in self.gid_list:
+            if gid not in list(GKF_dict.keys()):
+                GKF_dict[frontend_id][gid] = set()
+            GKF_dict[frontend_id][gid].update(cur_frame_idx)
+
+        self.Connected_KFs_dict[frontend_id].update(cur_frame_idx)
+
+
+        return
+
 
     def run(self):
 
