@@ -19,3 +19,6 @@ float32[] cam_trans_delta
 float32 exposure_a
 float32 exposure_b
 std_msgs/Float32MultiArray projection_matrix
+#KeyPoints[] keypoints
+std_msgs/Int32MultiArray descriptors
+float32 sim_score

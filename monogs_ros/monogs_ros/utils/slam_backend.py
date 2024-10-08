@@ -11,7 +11,7 @@ from rclpy.node import Node
 from std_msgs.msg import String, Float32MultiArray, Int32MultiArray, MultiArrayDimension
 
 
-from monogs_interfaces.msg import F2B, B2F, Gaussian, Keyframe, OccAwareVisibility 
+from monogs_interfaces.msg import F2B, B2F, B2LC, CameraMsg, Gaussian, Keyframe, OccAwareVisibility 
 from monogs_ros.utils.camera_utils import Camera
 from monogs_ros.gaussian_splatting.utils.graphics_utils import getProjectionMatrix2
 
@@ -66,16 +66,11 @@ class BackEnd(Node):
         self.vocab = bow.Vocabulary()
         self.vocab.load("/root/code/monogs_ros_ws/src/monogs_ros/monogs_ros/utils/orbvoc.dbow3")
 
-        # We need this for each map (happens to be equal to num tum cameras initially)
-        self.kfid_list = [[] for i in range(self.num_tum_cameras)]
-        self.GKF_dict = [{} for i in range(self.num_tum_cameras)]
-        self.KFG_dict = [{} for i in range(self.num_tum_cameras)]
-        self.Connected_KFs_dict = [{} for i in range(self.num_tum_cameras)]
-
-
         self.queue_size_ = 100
-        self.msg_counter = 0
+        self.b2f_msg_counter = 0
+        self.b2lc_msg_counter = 0
         self.b2f_publisher = self.create_publisher(B2F, '/Back2Front', self.queue_size_)
+        self.b2lc_publisher = self.create_publisher(B2LC, '/Back2LoopClosure', self.queue_size_)
 
         self.f2b_subscriber = self.create_subscription(F2B, '/Front2Back', self.f2b_listener_callback, self.queue_size_)
         self.f2b_subscriber  # prevent unused variable warning
@@ -84,9 +79,9 @@ class BackEnd(Node):
     def f2b_listener_callback(self, f2b_msg):
         self.get_logger().info('I heard from frontend: "%s"' % f2b_msg.msg)
  
-        frontend_id, cur_frame_idx, viewpoint, depth_map, current_window = self.convert_from_ros_msg(f2b_msg)
+        frontend_id, cur_frame_idx, viewpoint, depth_map, current_window = self.convert_from_f2b_ros_msg(f2b_msg)
 
-        Log(f"Message Rxd from frontend with frontend id = {frontend_id}...", tag_msg=f2b_msg.msg, tag="BackEnd")
+        #Log(f"Message Rxd from frontend with frontend id = {frontend_id}...", tag_msg=f2b_msg.msg, tag="BackEnd")
 
         if f2b_msg.msg == "stop":
             pass #Need to signal a stop from here
@@ -102,6 +97,7 @@ class BackEnd(Node):
             self.viewpoints[frontend_id][cur_frame_idx] = viewpoint
             self.initialize_map(cur_frame_idx, viewpoint, frontend_id)
             self.push_to_frontend("init", frontend_id)
+            self.publish_message_to_loopclosure_node(frontend_id, viewpoint, self.occ_aware_visibility[frontend_id])
 
         elif f2b_msg.msg == "keyframe":
             self.current_windows[frontend_id] = current_window
@@ -165,6 +161,7 @@ class BackEnd(Node):
 
             self.keyframe_map_update(frontend_id, iter_per_kf)
             self.push_to_frontend("keyframe", frontend_id)
+            self.publish_message_to_loopclosure_node(frontend_id, self.viewpoints[frontend_id][cur_frame_idx], self.occ_aware_visibility[frontend_id])
         else:
             pass
             #Log(f"Message rxd from frontend with {data[0]}", tag_msg="OOV_MSG", tag="BackEnd")
@@ -251,10 +248,11 @@ class BackEnd(Node):
         # viewpoint.PlaceRecognitionScore = cam_msg.PlaceRecognitionScore
         viewpoint.sim_score = cam_msg.sim_score
 
+
         return viewpoint
 
 
-    def convert_from_ros_msg(self, f2b_msg):
+    def convert_from_f2b_ros_msg(self, f2b_msg):
         frontend_id = f2b_msg.frontend_id
         if f2b_msg.msg == "pause" or f2b_msg.msg == "unpause":
             cur_frame_idx = None
@@ -273,13 +271,20 @@ class BackEnd(Node):
 
 
     def publish_message_to_frontend(self, tag, gaussian, oav_dict, keyframes):
-        b2f_msg = self.convert_to_ros_msg(tag, gaussian, oav_dict, keyframes)
+        b2f_msg = self.convert_to_b2f_ros_msg(tag, gaussian, oav_dict, keyframes)
 
         self.b2f_publisher.publish(b2f_msg)
-        self.get_logger().info('Publishing: %s - Hello World from backend: %d' % (b2f_msg.msg, self.msg_counter))
-        self.msg_counter += 1
+        #self.get_logger().info('Publishing: %s - Hello World from backend: %d' % (b2f_msg.msg, self.b2f_msg_counter))
+        self.b2f_msg_counter += 1
 
-    def convert_to_ros_msg(self, tag, gaussian, oav_dict, keyframes):
+    def publish_message_to_loopclosure_node(self, frontend_id, viewpoint, oav_dict):
+        b2lc_msg = self.convert_to_b2lc_ros_msg(frontend_id, viewpoint, oav_dict)
+
+        self.b2lc_publisher.publish(b2lc_msg)
+        self.get_logger().info('Publishing: Hello World from backend: %d' % (self.b2lc_msg_counter))
+        self.b2lc_msg_counter += 1
+
+    def convert_to_b2f_ros_msg(self, tag, gaussian, oav_dict, keyframes):
         b2f_msg = B2F()
 
         b2f_msg.msg = tag
@@ -315,6 +320,60 @@ class BackEnd(Node):
             b2f_msg.keyframes.append(keyframe_msg)
 
         return b2f_msg
+
+    def get_camera_msg_from_viewpoint(self, viewpoint):
+
+        if viewpoint is None:
+            return None
+
+        viewpoint_msg = CameraMsg()
+        viewpoint_msg.uid = viewpoint.uid
+        viewpoint_msg.device = viewpoint.device
+        viewpoint_msg.rot = convert_tensor_to_ros_message(viewpoint.R)
+        viewpoint_msg.trans = viewpoint.T.tolist()
+        viewpoint_msg.rot_gt = convert_tensor_to_ros_message(viewpoint.R_gt)
+        viewpoint_msg.trans_gt = viewpoint.T_gt.tolist()
+        viewpoint_msg.original_image = convert_tensor_to_ros_message(viewpoint.original_image)
+        viewpoint_msg.depth = convert_numpy_array_to_ros_message(viewpoint.depth)
+        viewpoint_msg.fx = viewpoint.fx
+        viewpoint_msg.fy = viewpoint.fy
+        viewpoint_msg.cx = viewpoint.cx
+        viewpoint_msg.cy = viewpoint.cy
+        viewpoint_msg.fovx = viewpoint.FoVx
+        viewpoint_msg.fovy = viewpoint.FoVy
+        viewpoint_msg.image_width = viewpoint.image_width
+        viewpoint_msg.image_height = viewpoint.image_height
+        viewpoint_msg.cam_rot_delta = viewpoint.cam_rot_delta.tolist()
+        viewpoint_msg.cam_trans_delta = viewpoint.cam_trans_delta.tolist()
+        viewpoint_msg.exposure_a = viewpoint.exposure_a.item()
+        viewpoint_msg.exposure_b = viewpoint.exposure_b.item()
+        viewpoint_msg.projection_matrix = convert_tensor_to_ros_message(viewpoint.projection_matrix)
+
+        #viewpoint_msg.keypoints = viewpoint.keypoints
+        viewpoint_msg.descriptors = convert_numpy_array_to_ros_message(viewpoint.descriptors)
+        # viewpoint_msg.BowList = viewpoint.BowList
+        # viewpoint_msg.PlaceRecognitionQueryUID = viewpoint.PlaceRecognitionQueryUID
+        # viewpoint_msg.PlaceRecognitionWords = viewpoint.PlaceRecognitionWords
+        # viewpoint_msg.PlaceRecognitionScore = viewpoint.PlaceRecognitionScore
+        viewpoint_msg.sim_score = viewpoint.sim_score
+
+        return viewpoint_msg
+
+    def convert_to_b2lc_ros_msg(self, frontend_id, viewpoint, oav_dict):
+        b2lc_msg = B2LC()
+
+        b2lc_msg.frontend_id = frontend_id
+
+        if viewpoint is not None:
+            b2lc_msg.viewpoint = self.get_camera_msg_from_viewpoint(viewpoint)
+
+        for k,v in oav_dict.items():
+            oav_msg = OccAwareVisibility()
+            oav_msg.kf_idx = k
+            oav_msg.vis_array = v.tolist()
+            b2lc_msg.occ_aware_visibility.append(oav_msg)
+
+        return b2lc_msg
 
     def set_hyperparams(self):
         self.save_results = self.config["Results"]["save_results"]
@@ -355,8 +414,6 @@ class BackEnd(Node):
         self.gaussians[frontend_id].extend_from_pcd_seq(
             viewpoint, kf_id=frame_idx, init=init, scale=scale, depthmap=depth_map
         )
-
-        self.kfid_list[frontend_id].append(frame_idx)
 
         self.ComputeBoW(viewpoint)
 
@@ -430,14 +487,11 @@ class BackEnd(Node):
 
         self.occ_aware_visibility[frontend_id][cur_frame_idx] = (n_touched > 0).long()
 
-
-        self.update_covisibility(frontend_id)
-
         Log("Initialized map")
         return render_pkg
 
     def map(self, current_windows, frontend_id, prune=False, iters=1):
-        Log("", tag_msg="Mapping", tag="BackEnd")
+        #Log("", tag_msg="Mapping", tag="BackEnd")
         if len(current_windows[frontend_id]) == 0:
             return
 
@@ -531,7 +585,7 @@ class BackEnd(Node):
             gaussian_split = False
             ## Deinsifying / Pruning Gaussians
             with torch.no_grad():
-                self.occ_aware_visibility[frontend_id] = {}
+                #self.occ_aware_visibility[frontend_id] = {}
                 for idx in range((len(current_windows[frontend_id]))):
                     kf_idx = current_windows[frontend_id][idx]
                     n_touched = n_touched_acm[idx]
@@ -543,9 +597,12 @@ class BackEnd(Node):
                     if len(current_windows[frontend_id]) == self.config["Training"]["window_size"]:
                         prune_mode = self.config["Training"]["prune_mode"]
                         prune_coviz = 3
+
                         self.gaussians[frontend_id].n_obs.fill_(0)
-                        for window_idx, visibility in self.occ_aware_visibility[frontend_id].items():
-                            self.gaussians[frontend_id].n_obs += visibility.cpu()
+                        for idx in range((len(current_windows[frontend_id]))):
+                            current_idx = current_windows[frontend_id][idx]
+                            self.gaussians[frontend_id].n_obs += self.occ_aware_visibility[frontend_id][current_idx].cpu()
+
                         to_prune = None
                         if prune_mode == "odometry":
                             to_prune = self.gaussians[frontend_id].n_obs < 3
@@ -598,7 +655,7 @@ class BackEnd(Node):
                 if (self.iteration_count % self.gaussian_reset) == 0 and (
                     not update_gaussian
                 ):
-                    Log("Resetting the opacity of non-visible Gaussians")
+                    #Log("Resetting the opacity of non-visible Gaussians")
                     self.gaussians[frontend_id].reset_opacity_nonvisible(visibility_filter_acm)
                     gaussian_split = True
 
@@ -641,52 +698,18 @@ class BackEnd(Node):
         if self.last_sent[frontend_id] >= 10:
             self.map(self.current_windows, frontend_id, prune=True, iters=10)
 
-        self.update_covisibility(frontend_id)
 
     def keyframe_map_update(self, frontend_id, iter_per_kf):
         self.map(self.current_windows, frontend_id, iters=iter_per_kf)
         self.map(self.current_windows, frontend_id, prune=True)
 
-        self.update_covisibility(frontend_id)
-
-    def update_covisibility(self, frontend_id):
-
-        # Find the covisibility graph here
-        # Sort the connected keyframes based on degree/weight of connection (degree calculated in Gaussian rendering forward function)
-
-        # Gaussians change everytime the mapping optimization is done - KF addition and sync
-        # Update covisibility whenever Gaussians change
-
-        # For every Key frame we need to pass it through the render function (to find the visible Gaussians)
-        # Call the render function here
+        # Number of Gaussians and their locations would have changed - update occ_aware_visibility before running loop closure
         with torch.no_grad():
-            for kfid in self.kfid_list[frontend_id]:
+            kfid_list = self.occ_aware_visibility[frontend_id].keys()
+            for kfid in kfid_list:
                 render_pkg = render(self.viewpoints[frontend_id][kfid], self.gaussians[frontend_id], self.pipeline_params, self.background)
                 n_touched = render_pkg["n_touched"]
                 self.occ_aware_visibility[frontend_id][kfid] = (n_touched > 0).long()
-
-                gid_list = torch.nonzero(self.occ_aware_visibility[frontend_id][kfid], as_tuple=True)[0]
-                self.KFG_dict[frontend_id][kfid] = gid_list
-
-                for gid in gid_list:
-                    if gid not in list(self.GKF_dict[frontend_id].keys()):
-                        self.GKF_dict[frontend_id][gid] = set()
-                    self.GKF_dict[frontend_id][gid].add(kfid)
-
-        return
-
-    def get_connected_key_frames(self, frontend_id, query_kfid):
-
-        self.KFG_dict[frontend_id][query_kfid] = gid_list
-        for gid in gid_list:
-            for kfid in self.GKF_dict[frontend_id][gid]:
-                if kfid not in list(self.Connected_KFs_dict[frontend_id].keys()):
-                    self.Connected_KFs_dict[frontend_id][kfid] = 0
-                else:
-                    self.Connected_KFs_dict[frontend_id][kfid] += 1
-
-        return
-
 
     def run(self):
 

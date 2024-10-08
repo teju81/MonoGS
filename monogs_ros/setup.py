@@ -24,6 +24,7 @@ setup(
             'slam_frontend = monogs_ros.utils.slam_frontend:main',
             'slam_backend = monogs_ros.utils.slam_backend:main',
             'slam_gui = monogs_ros.gui.slam_gui:main',
+            'slam_loopclosing = monogs_ros.utils.slam_loopclosing:main',
         ],
     },
 )

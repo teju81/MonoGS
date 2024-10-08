@@ -79,7 +79,7 @@ class FrontEnd(Node):
 
 
     def b2f_listener_callback(self, b2f_msg):
-        self.get_logger().info('I heard from backend: %s' % b2f_msg.msg)
+        #self.get_logger().info('I heard from backend: %s' % b2f_msg.msg)
         if b2f_msg.msg == "sync_backend":
             self.sync_backend(b2f_msg)
 
@@ -97,10 +97,10 @@ class FrontEnd(Node):
 
 
     def sync_backend(self, b2f_msg):
-        Log(f"Message Rxd from backend...", tag_msg=b2f_msg.msg, tag=f"FrontEnd_{self.frontend_id}")
-        self.convert_b2f_msg_from_ros_msg(b2f_msg)
+        #Log(f"Message Rxd from backend...", tag_msg=b2f_msg.msg, tag=f"FrontEnd_{self.frontend_id}")
+        self.convert_from_b2f_ros_msg(b2f_msg)
 
-    def convert_b2f_msg_from_ros_msg(self, b2f_msg):
+    def convert_from_b2f_ros_msg(self, b2f_msg):
         model_params = munchify(self.config["model_params"])
         self.gaussians = GaussianModel(model_params.sh_degree, config=self.config)
         #Gaussian part of the message
@@ -138,7 +138,7 @@ class FrontEnd(Node):
 
 
     def publish_message_to_backend(self, tag, cur_frame_idx=None, viewpoint=None, depth_map=None, current_window=[]):
-        f2b_msg = self.convert_f2b_msg_to_ros_msg(tag, cur_frame_idx, viewpoint, depth_map, current_window)
+        f2b_msg = self.convert_to_f2b_ros_msg(tag, cur_frame_idx, viewpoint, depth_map, current_window)
 
 
         self.f2b_publisher.publish(f2b_msg)
@@ -146,7 +146,7 @@ class FrontEnd(Node):
         self.msg_counter_f2b += 1
 
 
-    def convert_f2b_msg_to_ros_msg(self, tag, cur_frame_idx, viewpoint, depth_map, current_window):
+    def convert_to_f2b_ros_msg(self, tag, cur_frame_idx, viewpoint, depth_map, current_window):
         f2b_msg = F2B()
 
         f2b_msg.msg = tag
@@ -417,12 +417,12 @@ class FrontEnd(Node):
         # self.backend_queue.put(msg)
         self.requested_keyframe += 1
 
-    def reqeust_mapping(self, cur_frame_idx, viewpoint):
-        self.publish_message_to_backend("map", cur_frame_idx, viewpoint)
-        # msg = [f"Camera ID: {self.frontend_id}"]
-        # self.backend_queue.put(msg)
-        # msg = ["map", cur_frame_idx, viewpoint]
-        # self.backend_queue.put(msg)
+    # def reqeust_mapping(self, cur_frame_idx, viewpoint):
+    #     self.publish_message_to_backend("map", cur_frame_idx, viewpoint)
+    #     # msg = [f"Camera ID: {self.frontend_id}"]
+    #     # self.backend_queue.put(msg)
+    #     # msg = ["map", cur_frame_idx, viewpoint]
+    #     # self.backend_queue.put(msg)
 
     def request_init(self, cur_frame_idx, viewpoint, depth_map):
         self.publish_message_to_backend("init", cur_frame_idx, viewpoint, depth_map)
@@ -438,14 +438,14 @@ class FrontEnd(Node):
             torch.cuda.empty_cache()
 
     def publish_message_to_gui(self, gaussian_packet):
-        f2g_msg = self.convert_f2g_msg_to_ros_msg(gaussian_packet)
+        f2g_msg = self.convert_to_f2g_ros_msg(gaussian_packet)
         #f2g_msg.msg = 'Publishing: %s - Hello World from frontend: %d' % (f2g_msg.msg, self.msg_counter_f2g)
 
         self.f2g_publisher.publish(f2g_msg)
-        self.get_logger().info('Publishing: %s - Hello World from frontend: %d' % (f2g_msg.msg, self.msg_counter_f2g))
+        #self.get_logger().info('Publishing: %s - Hello World from frontend: %d' % (f2g_msg.msg, self.msg_counter_f2g))
         self.msg_counter_f2g += 1
 
-    def convert_f2g_msg_to_ros_msg(self, gaussian_packet):
+    def convert_to_f2g_ros_msg(self, gaussian_packet):
         f2g_msg = F2G()
 
         f2g_msg.msg = "Sending Gaussian Packets - without Gaussians"
@@ -532,7 +532,7 @@ class FrontEnd(Node):
         return viewpoint_msg
 
     def g2f_listener_callback(self, g2f_msg):
-        self.get_logger().info('I heard from gui: %s' % g2f_msg.msg)
+        #self.get_logger().info('I heard from gui: %s' % g2f_msg.msg)
         self.pause = g2f_msg.pause
         if self.pause:
             self.publish_message_to_backend(tag="pause")
