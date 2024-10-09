@@ -698,12 +698,18 @@ class BackEnd(Node):
         if self.last_sent[frontend_id] >= 10:
             self.map(self.current_windows, frontend_id, prune=True, iters=10)
 
+        self.update_oav(frontend_id)
+
 
     def keyframe_map_update(self, frontend_id, iter_per_kf):
         self.map(self.current_windows, frontend_id, iters=iter_per_kf)
         self.map(self.current_windows, frontend_id, prune=True)
 
-        # Number of Gaussians and their locations would have changed - update occ_aware_visibility before running loop closure
+        self.update_oav(frontend_id)
+
+    def update_oav(self, frontend_id):
+        # Number of Gaussians and their locations would have changed - update occ_aware_visibility
+        # To Do: Run this only when things have changed. Need to bring in a check for the same.
         with torch.no_grad():
             kfid_list = self.occ_aware_visibility[frontend_id].keys()
             for kfid in kfid_list:
