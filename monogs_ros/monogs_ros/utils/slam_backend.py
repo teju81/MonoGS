@@ -740,7 +740,7 @@ def main():
 
     with open(base_config_file, "r") as yml:
         base_config = yaml.safe_load(yml)
-        config_file = "/root/code/datasets/tum/rgbd_dataset_freiburg1_desk/" + config["Dataset"]["dataset_config_file"] + ".yaml"
+        config_file = base_config["Dataset"]["dataset_config_file"]
 
     config = load_config(config_file)
     model_params = munchify(config["model_params"])
