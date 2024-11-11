@@ -20,6 +20,8 @@ from monogs_ros.utils.ros_utils import (
     convert_numpy_array_to_ros_message, 
     convert_ros_multi_array_message_to_numpy, 
 )
+from monogs_ros.utils.descriptor import GlobalDesc
+from monogs_ros.utils.gen_utils import torch2np, np2torch
 
 class LoopClosure(Node):
     def __init__(self, config):
@@ -31,6 +33,9 @@ class LoopClosure(Node):
         self.occ_aware_visibility = [{} for i in range(self.num_tum_cameras)]
         self.viewpoints = [{} for i in range(self.num_tum_cameras)]
         self.kfid_list = [[] for i in range(self.num_tum_cameras)]
+
+        self.netvlad = GlobalDesc()
+
 
 
         self.mQueryKF = None
@@ -46,6 +51,19 @@ class LoopClosure(Node):
 
         self.b2lc_subscriber = self.create_subscription(B2LC, '/Back2LoopClosure', self.b2lc_listener_callback, self.queue_size_)
         self.b2lc_subscriber  # prevent unused variable warning
+
+
+    def get_kf_desc(self):
+        with torch.no_grad():
+            desc_list = []
+            for kfid in self.kfid_list[self.frontend_id]:
+                color_img = self.viewpoints[self.frontend_id][kfid].original_image[None]/255.0
+                desc = self.netvlad(color_img)
+                desc_list.append(desc)
+            self.db_desc = torch.cat(desc_list)
+            self_sim = torch.einsum("id,jd->ij", self.db_desc, self.db_desc)
+            score_min, _ = self_sim.topk(max(int(len(self.db_desc) * 0.5), 1))
+            print(score_min)
 
     def set_hyperparams(self):
         pass
@@ -75,9 +93,13 @@ class LoopClosure(Node):
 
 
     def DetectLoopClosure(self):
-        print(f"Key frames List: {self.kfid_list[self.frontend_id]}")
-        if len(self.kfid_list[self.frontend_id]) > 2:
-            self.get_connected_key_frames()
+
+        self.get_kf_desc()
+
+
+        # print(f"Key frames List: {self.kfid_list[self.frontend_id]}")
+        # if len(self.kfid_list[self.frontend_id]) > 2:
+        #     self.get_connected_key_frames()
 
         # numCandidates = 3
         # self.mKFDB.DetectNBestCandidates(self.mLoopBow_List, numCandidates)

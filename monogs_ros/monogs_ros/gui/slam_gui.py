@@ -52,6 +52,10 @@ from monogs_ros.gui.gui_utils import (
 from monogs_ros.utils.camera_utils import Camera
 from monogs_ros.utils.logging_utils import Log
 
+
+import matplotlib.pyplot as plt
+from matplotlib.colors import ListedColormap
+
 o3d.utility.set_verbosity_level(o3d.utility.VerbosityLevel.Error)
 
 
@@ -91,6 +95,8 @@ class SLAM_GUI(Node):
         self.g_camera = util.Camera(self.window_h, self.window_w)
         self.window_gl = self.init_glfw()
         self.g_renderer = OpenGLRenderer(self.g_camera.w, self.g_camera.h)
+        self.color_jet = plt.cm.jet(np.linspace(0, 1, 50))
+
 
         gl.glEnable(gl.GL_TEXTURE_2D)
         gl.glEnable(gl.GL_DEPTH_TEST)
@@ -298,6 +304,8 @@ class SLAM_GUI(Node):
         )
         W2C = W2C.cpu().numpy()
         C2W = np.linalg.inv(W2C)
+
+        # color = self.color_jet[self.submap_id][:-1] # select only RGB and ignore last term which is A
         frustum = create_frustum(C2W, color, size=size)
         if name not in self.frustum_dict.keys():
             frustum = create_frustum(C2W, color)
