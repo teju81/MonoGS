@@ -11,6 +11,7 @@ Results:
 Dataset:
   type: 'tum'
   sensor_type: 'depth'
+  dataset_config_file: "fr1_desk"
   pcd_downsample: 128
   pcd_downsample_init: 32
   adaptive_pointsize: True

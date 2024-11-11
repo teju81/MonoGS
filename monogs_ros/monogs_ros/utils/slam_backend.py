@@ -736,10 +736,11 @@ class BackEnd(Node):
         return
 
 def main():
-    config_file = "/root/code/monogs_ros_ws/src/monogs_ros/monogs_ros/configs/rgbd/tum/fr1_desk.yaml"
+    base_config_file = "/root/code/monogs_ros_ws/src/monogs_ros/monogs_ros/configs/rgbd/tum/base_config.yaml"
 
-    with open(config_file, "r") as yml:
-        config = yaml.safe_load(yml)
+    with open(base_config_file, "r") as yml:
+        base_config = yaml.safe_load(yml)
+        config_file = "/root/code/datasets/tum/rgbd_dataset_freiburg1_desk/" + config["Dataset"]["dataset_config_file"] + ".yaml"
 
     config = load_config(config_file)
     model_params = munchify(config["model_params"])
