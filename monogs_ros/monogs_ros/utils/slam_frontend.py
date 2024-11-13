@@ -601,7 +601,7 @@ class FrontEnd(Node):
 
         current_window_dict = {}
         current_window_dict[self.current_window[0]] = self.current_window[1:]
-        keyframes = [self.cameras[kf_idx] for kf_idx in self.current_window]
+        keyframes = [self.cameras[kf_idx] for kf_idx in self.kf_indices]
 
         gaussian_packet = gui_utils.GaussianPacket(
                 gaussians=clone_obj(self.gaussians),

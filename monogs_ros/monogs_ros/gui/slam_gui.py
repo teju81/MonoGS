@@ -96,6 +96,7 @@ class SLAM_GUI(Node):
         self.window_gl = self.init_glfw()
         self.g_renderer = OpenGLRenderer(self.g_camera.w, self.g_camera.h)
         self.color_jet = plt.cm.jet(np.linspace(0, 1, 50))
+        self.num_keyframes = 0
 
 
         gl.glEnable(gl.GL_TEXTURE_2D)
@@ -305,7 +306,6 @@ class SLAM_GUI(Node):
         W2C = W2C.cpu().numpy()
         C2W = np.linalg.inv(W2C)
 
-        # color = self.color_jet[self.submap_id][:-1] # select only RGB and ignore last term which is A
         frustum = create_frustum(C2W, color, size=size)
         if name not in self.frustum_dict.keys():
             frustum = create_frustum(C2W, color)
@@ -793,15 +793,19 @@ class SLAM_GUI(Node):
                 self.widget3d.look_at(viewpoint[0], viewpoint[1], viewpoint[2])
 
         if gaussian_packet.keyframe is not None:
+            self.num_keyframes += 1
             name = "keyframe_{}".format(gaussian_packet.keyframe.uid)
             frustum = self.add_camera(
                 gaussian_packet.keyframe, name=name, color=[0, 0, 1]
             )
 
         if gaussian_packet.keyframes is not None:
-            for keyframe in gaussian_packet.keyframes:
+            for idx,keyframe in enumerate(gaussian_packet.keyframes):
                 name = "keyframe_{}".format(keyframe.uid)
-                frustum = self.add_camera(keyframe, name=name, color=[0, 0, 1])
+                idx = idx % 50
+                color = self.color_jet[idx][:-1] # select only RGB and ignore last term which is A
+                #color = [1, 0, 0]
+                frustum = self.add_camera(keyframe, name=name, color=color)
 
         if gaussian_packet.kf_window is not None:
             self.kf_window = gaussian_packet.kf_window
@@ -843,7 +847,7 @@ class SLAM_GUI(Node):
         self.msg_counter_g2f += 1
 
     def scene_update(self):
-        if self.received_f2g_msg and self.gaussian_cur is not None:
+        if self.gaussian_cur is not None:
             self.render_gui()
             self.received_f2g_msg = False
 
