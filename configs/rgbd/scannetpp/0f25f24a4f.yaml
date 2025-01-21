@@ -1,0 +1,18 @@
+inherit_from: "configs/rgbd/scannetpp/base_config.yaml"
+
+Dataset:
+  dataset_path: "/root/code/datasets/scannetpp/parsed/0f25f24a4f"
+  Calibration:
+    fx: 479.360000
+    fy: 480.330000
+    cx: 319.685667
+    cy: 240.821667
+    k1: 0.0
+    k2: 0.0
+    p1: 0.0
+    p2: 0.0
+    k3: 0.0
+    distorted: True
+    width: 640
+    height: 480
+    depth_scale: 5000.0

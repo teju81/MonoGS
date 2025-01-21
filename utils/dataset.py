@@ -1,7 +1,7 @@
 import csv
 import glob
 import os
-
+import sys
 import cv2
 import numpy as np
 import torch
@@ -121,7 +121,6 @@ class TUMParser:
 
             self.frames.append(frame)
 
-
 class EuRoCParser:
     def __init__(self, input_folder, start_idx=0):
         self.input_folder = input_folder
@@ -189,6 +188,42 @@ class EuRoCParser:
             frames.append(frame)
         self.frames = frames
 
+class ScannetPPParser:
+    def __init__(self, input_folder):
+        self.input_folder = input_folder
+        self.color_path = "color"
+        self.depth_path = "depth"
+        self.pose_path = "pose"
+
+        self.color_paths = sorted(
+            glob.glob(f"{self.input_folder}/{self.color_path}/*.jpg"),
+            key=lambda x: int(os.path.basename(x).split(".")[0]),
+        )
+        self.depth_paths = sorted(
+            glob.glob(f"{self.input_folder}/{self.depth_path}/*.png"),
+            key=lambda x: int(os.path.basename(x).split(".")[0]),
+        )
+        self.n_img = len(self.color_paths)
+        self.timestamps = [(i+1) / 30.0 for i in range(self.n_img)]
+
+        self.crop_edge = 0
+
+        self.pose_paths = sorted(
+            glob.glob(f"{self.input_folder}/{self.pose_path}/*.txt"),
+            key=lambda x: int(os.path.basename(x).split(".")[0]),
+        )
+        
+        self.poses = []
+        self.load_poses()
+
+        self.intrinsic = np.loadtxt(os.path.join(self.input_folder, "intrinsic", "intrinsic_depth.txt"))
+
+    def load_poses(self):
+        for i in range(self.n_img):
+            pose_file = self.pose_paths[i]
+            pose = np.loadtxt(pose_file)
+            self.poses.append(pose)
+        return
 
 class BaseDataset(torch.utils.data.Dataset):
     def __init__(self, args, path, config):
@@ -403,6 +438,98 @@ class TUMDataset(MonocularDataset):
         self.depth_paths = parser.depth_paths
         self.poses = parser.poses
 
+class ScannetPPDataset(MonocularDataset):
+    def __init__(self, args, path, config):
+        super().__init__(args, path, config)
+        dataset_path = config["Dataset"]["dataset_path"]
+        parser = ScannetPPParser(dataset_path)
+        self.num_imgs = parser.n_img
+        self.color_paths = parser.color_paths
+        self.depth_paths = parser.depth_paths
+        self.poses = parser.poses
+        self.n_img = parser.n_img
+        self.intrinsic = parser.intrinsic
+        self.readCameras()
+
+    def readCameras(self):
+        cam_infos = []
+        indices = list(range(self.n_img))
+        pose_w_t0 = np.eye(4)
+        for idx_ in range(len(indices)):
+            idx = indices[idx_]
+            sys.stdout.write("\r")
+            # the exact output you're looking for:
+            sys.stdout.write("Reading camera {}/{}".format(idx_ + 1, len(indices)))
+            sys.stdout.flush()
+
+            c2w = self.poses[idx]
+            if idx_ == 0:
+                pose_w_t0 = np.linalg.inv(c2w)
+            # pass invalid pose
+            if np.isinf(c2w).any():
+                printf(f"Invalid pose found at frame id: {idx_}")
+                continue
+            c2w = pose_w_t0 @ c2w
+            self.poses[idx] = c2w
+
+            # # get the world-to-camera transform and set R, T
+            # w2c = np.linalg.inv(c2w)
+            # R = np.transpose(
+            #     w2c[:3, :3]
+            # )  # R is stored transposed due to 'glm' in CUDA code
+            # T = w2c[:3, 3]
+
+            self.fx, self.fy = self.intrinsic[0, 0], self.intrinsic[1, 1]
+            self.cx, self.cy = self.intrinsic[0, 2], self.intrinsic[1, 2]
+
+            # Set the height and width to some random value - will be adjusted to the actual value when images are loaded
+            self.height = 480
+            self.width = 640
+
+            self.fovx = focal2fov(self.fx, self.width)
+            self.fovy = focal2fov(self.fy, self.height)
+            #image_name = os.path.basename(self.color_paths[idx]).split(".")[0]
+
+        self.K = np.array(
+            [[self.fx, 0.0, self.cx], [0.0, self.fy, self.cy], [0.0, 0.0, 1.0]]
+        )
+        # distortion parameters
+        self.disorted = calibration["distorted"]
+        self.dist_coeffs = np.array(
+            [
+                calibration["k1"],
+                calibration["k2"],
+                calibration["p1"],
+                calibration["p2"],
+                calibration["k3"],
+            ]
+        )
+
+
+
+    def __getitem__(self, idx):
+        color_path = self.color_paths[idx]
+        pose = self.poses[idx]
+
+        image = np.array(Image.open(color_path))
+        depth = None
+        self.height, self.width, _ = image.shape
+
+        # if self.disorted:
+        #     image = cv2.remap(image, self.map1x, self.map1y, cv2.INTER_LINEAR)
+
+        if self.has_depth:
+            depth_path = self.depth_paths[idx]
+            depth = np.array(Image.open(depth_path)) / self.depth_scale
+
+        image = (
+            torch.from_numpy(image / 255.0)
+            .clamp(0.0, 1.0)
+            .permute(2, 0, 1)
+            .to(device=self.device, dtype=self.dtype)
+        )
+        pose = torch.from_numpy(pose).to(device=self.device)
+        return image, depth, pose
 
 class ReplicaDataset(MonocularDataset):
     def __init__(self, args, path, config):
@@ -522,6 +649,8 @@ class RealsenseDataset(BaseDataset):
 def load_dataset(args, path, config):
     if config["Dataset"]["type"] == "tum":
         return TUMDataset(args, path, config)
+    if config["Dataset"]["type"] == "scannetpp":
+        return ScannetPPDataset(args, path, config)
     elif config["Dataset"]["type"] == "replica":
         return ReplicaDataset(args, path, config)
     elif config["Dataset"]["type"] == "euroc":
