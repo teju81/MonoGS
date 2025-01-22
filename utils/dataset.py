@@ -452,6 +452,13 @@ class ScannetPPDataset(MonocularDataset):
         self.readCameras(config)
 
     def readCameras(self, config):
+        # Define a 180° rotation matrix around the Z-axis (into the screen)
+        R_correction = np.array([
+            [ 1,  0,  0,  0], # Preserve or flip X
+            [ 0, 1,  0,  0], # Preserve or flip Y
+            [ 0,  0,  1,  0], # Preserve or flip Z
+            [ 0,  0,  0,  1]
+        ])
         cam_infos = []
         indices = list(range(self.n_img))
         pose_w_t0 = np.eye(4)
@@ -470,6 +477,7 @@ class ScannetPPDataset(MonocularDataset):
                 printf(f"Invalid pose found at frame id: {idx_}")
                 continue
             c2w = pose_w_t0 @ c2w
+            c2w = R_correction @ c2w
             self.poses[idx] = c2w
 
             # # get the world-to-camera transform and set R, T

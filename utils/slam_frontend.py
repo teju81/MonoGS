@@ -390,6 +390,35 @@ class FrontEnd(mp.Process):
 
                 # Tracking
                 render_pkg = self.tracking(cur_frame_idx, viewpoint)
+                # print(f"Comparing ground truth and estimate pose for frame id: {cur_frame_idx}")
+                # print(f"Ground Truth Rotation {viewpoint.R_gt}")
+                # print(f"Estimated Rotation {viewpoint.R}")
+                # print(f"Ground truth Translation: {viewpoint.T_gt}")
+                # print(f"Estimated Translation: {viewpoint.T}")
+
+                #############################################
+                # # Use Ground truth for tracking instead
+                #############################################
+                # viewpoint.update_RT(viewpoint.R_gt, viewpoint.T_gt)
+                # render_pkg = render(
+                #     viewpoint, self.gaussians, self.pipeline_params, self.background
+                # )
+                # depth, opacity = (
+                #     render_pkg["depth"],
+                #     render_pkg["opacity"],
+                # )
+                # self.median_depth = get_median_depth(depth, opacity)
+                # self.q_main2vis.put(
+                #     gui_utils.GaussianPacket(
+                #         current_frame=viewpoint,
+                #         gtcolor=viewpoint.original_image,
+                #         gtdepth=viewpoint.depth
+                #         if not self.monocular
+                #         else np.zeros((viewpoint.image_height, viewpoint.image_width)),
+                #     )
+                # )
+                # time.sleep(0.1)
+
 
                 current_window_dict = {}
                 current_window_dict[self.current_window[0]] = self.current_window[1:]
