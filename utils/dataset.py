@@ -244,28 +244,28 @@ class BaseDataset(torch.utils.data.Dataset):
 class MonocularDataset(BaseDataset):
     def __init__(self, args, path, config):
         super().__init__(args, path, config)
-        calibration = config["Dataset"]["Calibration"]
+        self.calibration = config["Dataset"]["Calibration"]
         # Camera prameters
-        self.fx = calibration["fx"]
-        self.fy = calibration["fy"]
-        self.cx = calibration["cx"]
-        self.cy = calibration["cy"]
-        self.width = calibration["width"]
-        self.height = calibration["height"]
+        self.fx = self.calibration["fx"]
+        self.fy = self.calibration["fy"]
+        self.cx = self.calibration["cx"]
+        self.cy = self.calibration["cy"]
+        self.width = self.calibration["width"]
+        self.height = self.calibration["height"]
         self.fovx = focal2fov(self.fx, self.width)
         self.fovy = focal2fov(self.fy, self.height)
         self.K = np.array(
             [[self.fx, 0.0, self.cx], [0.0, self.fy, self.cy], [0.0, 0.0, 1.0]]
         )
         # distortion parameters
-        self.disorted = calibration["distorted"]
+        self.disorted = self.calibration["distorted"]
         self.dist_coeffs = np.array(
             [
-                calibration["k1"],
-                calibration["k2"],
-                calibration["p1"],
-                calibration["p2"],
-                calibration["k3"],
+                self.calibration["k1"],
+                self.calibration["k2"],
+                self.calibration["p1"],
+                self.calibration["p2"],
+                self.calibration["k3"],
             ]
         )
         self.map1x, self.map1y = cv2.initUndistortRectifyMap(
@@ -277,8 +277,8 @@ class MonocularDataset(BaseDataset):
             cv2.CV_32FC1,
         )
         # depth parameters
-        self.has_depth = True if "depth_scale" in calibration.keys() else False
-        self.depth_scale = calibration["depth_scale"] if self.has_depth else None
+        self.has_depth = True if "depth_scale" in self.calibration.keys() else False
+        self.depth_scale = self.calibration["depth_scale"] if self.has_depth else None
 
         # Default scene scale
         nerf_normalization_radius = 5
@@ -449,9 +449,9 @@ class ScannetPPDataset(MonocularDataset):
         self.poses = parser.poses
         self.n_img = parser.n_img
         self.intrinsic = parser.intrinsic
-        self.readCameras()
+        self.readCameras(config)
 
-    def readCameras(self):
+    def readCameras(self, config):
         cam_infos = []
         indices = list(range(self.n_img))
         pose_w_t0 = np.eye(4)
@@ -479,33 +479,43 @@ class ScannetPPDataset(MonocularDataset):
             # )  # R is stored transposed due to 'glm' in CUDA code
             # T = w2c[:3, 3]
 
-            self.fx, self.fy = self.intrinsic[0, 0], self.intrinsic[1, 1]
-            self.cx, self.cy = self.intrinsic[0, 2], self.intrinsic[1, 2]
+            if idx == 0:
+                self.fx, self.fy = self.intrinsic[0, 0], self.intrinsic[1, 1]
+                self.cx, self.cy = self.intrinsic[0, 2], self.intrinsic[1, 2]
 
-            # Set the height and width to some random value - will be adjusted to the actual value when images are loaded
-            self.height = 480
-            self.width = 640
-
-            self.fovx = focal2fov(self.fx, self.width)
-            self.fovy = focal2fov(self.fy, self.height)
-            #image_name = os.path.basename(self.color_paths[idx]).split(".")[0]
-
-        self.K = np.array(
-            [[self.fx, 0.0, self.cx], [0.0, self.fy, self.cy], [0.0, 0.0, 1.0]]
-        )
-        # distortion parameters
-        self.disorted = calibration["distorted"]
-        self.dist_coeffs = np.array(
-            [
-                calibration["k1"],
-                calibration["k2"],
-                calibration["p1"],
-                calibration["p2"],
-                calibration["k3"],
-            ]
-        )
+                scale = config["Dataset"]["scale"]
+                scale_width = config["Dataset"]["scale_width"]
+                scale_height = config["Dataset"]["scale_height"]
+                if scale:
+                    sw = scale_width / self.width
+                    sh = scale_height / self.height
+                    self.fx *= sw
+                    self.fy *= sh
+                    self.cx *= sw
+                    self.cy *= sh
+                    self.width = scale_width
+                    self.height = scale_height
 
 
+                self.fovx = focal2fov(self.fx, self.width)
+                self.fovy = focal2fov(self.fy, self.height)
+
+                #image_name = os.path.basename(self.color_paths[idx]).split(".")[0]
+
+                self.K = np.array(
+                    [[self.fx, 0.0, self.cx], [0.0, self.fy, self.cy], [0.0, 0.0, 1.0]]
+                )
+                # distortion parameters
+                self.disorted = self.calibration["distorted"]
+                self.dist_coeffs = np.array(
+                    [
+                        self.calibration["k1"],
+                        self.calibration["k2"],
+                        self.calibration["p1"],
+                        self.calibration["p2"],
+                        self.calibration["k3"],
+                    ]
+                )
 
     def __getitem__(self, idx):
         color_path = self.color_paths[idx]

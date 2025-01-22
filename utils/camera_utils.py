@@ -65,6 +65,7 @@ class Camera(nn.Module):
     @staticmethod
     def init_from_dataset(dataset, idx, projection_matrix):
         gt_color, gt_depth, gt_pose = dataset[idx]
+        #print(f"Fetching frame id {idx}")
         return Camera(
             idx,
             gt_color,
