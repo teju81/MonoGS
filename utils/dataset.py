@@ -452,13 +452,36 @@ class ScannetPPDataset(MonocularDataset):
         self.readCameras(config)
 
     def readCameras(self, config):
-        # Define a 180° rotation matrix around the Z-axis (into the screen)
+
+        # R_correction = np.array([
+        #     [ 1,  0,  0,  0], # Preserve or flip X
+        #     [ 0, 1,  0,  0], # Preserve or flip Y
+        #     [ 0,  0,  1,  0], # Preserve or flip Z
+        #     [ 0,  0,  0,  1]
+        # ])
+
+        # Coordinate frame needs to be transformed
+        # Code written for display uses TUM dataset convention
+        # TUM Coordinate System
+        # X-axis: Points to the right (camera's right)
+        # Y-axis: Points downward (camera's down)
+        # Z-axis: Points forward (camera's viewing direction)
+
+        # Scannet++ Coordinate System
+        # X-axis: Points to the right (camera's right)
+        # Y-axis: Points forward (camera's viewing direction)
+        # Z-axis: Points Upward (camera's up)
+
+        # Transform Scannet++ to TUM convention
         R_correction = np.array([
             [ 1,  0,  0,  0], # Preserve or flip X
-            [ 0, 1,  0,  0], # Preserve or flip Y
-            [ 0,  0,  1,  0], # Preserve or flip Z
+            [ 0, 0,  -1,  0], # permute Y and Z and flip
+            [ 0,  1,  0,  0], # permute Y and Z
             [ 0,  0,  0,  1]
         ])
+
+
+
         cam_infos = []
         indices = list(range(self.n_img))
         pose_w_t0 = np.eye(4)

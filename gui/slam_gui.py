@@ -50,6 +50,7 @@ class SLAM_GUI:
         self.init = False
         self.kf_window = None
         self.render_img = None
+        self.count = 50
 
         if params_gui is not None:
             self.background = params_gui.background
@@ -423,7 +424,13 @@ class SLAM_GUI:
         if gaussian_packet.keyframes is not None:
             for keyframe in gaussian_packet.keyframes:
                 name = "keyframe_{}".format(keyframe.uid)
-                frustum = self.add_camera(keyframe, name=name, color=[0, 0, 1])
+                if keyframe.uid >= self.count:
+                    color = [1, 0, 0]
+                    self.count += 50
+                else:
+                    color = [0, 0, 1]
+
+                frustum = self.add_camera(keyframe, name=name, color=color)
 
         if gaussian_packet.kf_window is not None:
             self.kf_window = gaussian_packet.kf_window
